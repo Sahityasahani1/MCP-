@@ -1,0 +1,18 @@
+# Backend Middleware Dependencies (FastAPI + LangChain Provider-Agnostic Engine)
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# LLM Providers (Free & Sustainable Options)
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-google-genai>=2.0.0    # For Google Gemini 2.5 Flash
+langchain-groq>=0.2.0            # For Groq Cloud (Llama 3.3 70B)
+langchain-ollama>=0.2.0          # For local offline Ollama
+
+# Streaming & MCP client
+sse-starlette>=2.1.0
+mcp>=1.0.0
+fastmcp>=0.4.0

@@ -1,0 +1,9 @@
+# FastMCP Execution Layer Dependencies
+fastmcp>=0.4.0
+mcp>=1.0.0
+arxiv>=2.1.0
+kaggle>=1.6.0
+pandas>=2.0.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.30.0
