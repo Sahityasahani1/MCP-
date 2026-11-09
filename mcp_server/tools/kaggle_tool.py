@@ -1,8 +1,8 @@
 """Kaggle Dataset Discovery and Download Tool.
 
 Handles authenticated search and download via the Kaggle API/CLI.
-Provides an automated Benchmark/Mock mode if Kaggle credentials are not yet configured,
-ensuring zero pipeline blockage during initial setup.
+Provides SQLite TTL caching and an automated Benchmark/Mock mode if Kaggle credentials
+are not yet configured, ensuring zero pipeline blockage during initial setup.
 """
 
 import os
@@ -11,6 +11,7 @@ import json
 import zipfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from .cache import global_cache
 
 DATASET_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]+/[a-zA-Z0-9_.-]+$")
 
@@ -79,17 +80,26 @@ def find_kaggle_datasets(
     max_results: int = 5,
     min_usability_score: float = 0.70,
     max_size_mb: int = 250,
+    use_cache: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Search for Kaggle datasets matching user query.
-
-    Filters by usability threshold and maximum download size limit.
-    Falls back to curated benchmarks if credentials are not set.
-    """
+    """Search for Kaggle datasets matching user query with TTL caching."""
     clean_query = query.strip().lower()
     max_results = max(1, min(max_results, 10))
+    cache_params = {
+        "query": clean_query,
+        "max_results": max_results,
+        "min_usability_score": min_usability_score,
+        "max_size_mb": max_size_mb,
+    }
 
+    # 1. Check TTL Cache
+    if use_cache:
+        cached = global_cache.get("kaggle_search", cache_params)
+        if cached is not None:
+            return cached
+
+    # 2. Fetch or Benchmark Fallback
     if not _has_kaggle_credentials():
-        # Curated benchmark fallback with keyword matching
         matches = []
         for item in BENCHMARK_CATALOG:
             tags_text = " ".join(item["tags"])
@@ -102,46 +112,49 @@ def find_kaggle_datasets(
                 if item["size_mb"] <= max_size_mb and item["usability_score"] >= min_usability_score:
                     matches.append({**item, "is_mock_demo": True})
         
-        # If no specific tag matched, return top general benchmarks
         if not matches:
             matches = [{**item, "is_mock_demo": True} for item in BENCHMARK_CATALOG[:max_results]]
-        return matches[:max_results]
+        results = matches[:max_results]
+    else:
+        try:
+            from kaggle.api.kaggle_api_extended import KaggleApi
+            api = KaggleApi()
+            api.authenticate()
 
-    try:
-        from kaggle.api.kaggle_api_extended import KaggleApi
-        api = KaggleApi()
-        api.authenticate()
+            raw_datasets = api.dataset_list(search=clean_query, sort_by="votes", max_size=max_size_mb * 1024 * 1024)
+            results = []
+            for ds in raw_datasets:
+                dataset_id = getattr(ds, "ref", f"{getattr(ds, 'ownerName', '')}/{getattr(ds, 'name', '')}")
+                size_mb = round(getattr(ds, "totalBytes", 0) / (1024 * 1024), 2)
+                usability = getattr(ds, "usabilityRating", 0.75)
 
-        raw_datasets = api.dataset_list(search=clean_query, sort_by="votes", max_size=max_size_mb * 1024 * 1024)
-        results = []
-        for ds in raw_datasets:
-            dataset_id = getattr(ds, "ref", f"{getattr(ds, 'ownerName', '')}/{getattr(ds, 'name', '')}")
-            size_mb = round(getattr(ds, "totalBytes", 0) / (1024 * 1024), 2)
-            usability = getattr(ds, "usabilityRating", 0.75)
+                if usability >= min_usability_score and size_mb <= max_size_mb:
+                    results.append({
+                        "dataset_id": dataset_id,
+                        "title": getattr(ds, "title", dataset_id),
+                        "size_mb": size_mb,
+                        "usability_score": usability,
+                        "url": f"https://www.kaggle.com/datasets/{dataset_id}",
+                        "download_count": getattr(ds, "downloadCount", 0),
+                        "is_mock_demo": False,
+                    })
+                if len(results) >= max_results:
+                    break
+        except Exception as e:
+            results = [
+                {
+                    **item,
+                    "is_mock_demo": True,
+                    "note": f"Fallback to benchmark catalog due to Kaggle API error: {str(e)[:100]}",
+                }
+                for item in BENCHMARK_CATALOG[:max_results]
+            ]
 
-            if usability >= min_usability_score and size_mb <= max_size_mb:
-                results.append({
-                    "dataset_id": dataset_id,
-                    "title": getattr(ds, "title", dataset_id),
-                    "size_mb": size_mb,
-                    "usability_score": usability,
-                    "url": f"https://www.kaggle.com/datasets/{dataset_id}",
-                    "download_count": getattr(ds, "downloadCount", 0),
-                    "is_mock_demo": False,
-                })
-            if len(results) >= max_results:
-                break
-        return results
-    except Exception as e:
-        # Fallback to benchmark on API error (e.g. rate limit, bad token)
-        return [
-            {
-                **item,
-                "is_mock_demo": True,
-                "note": f"Fallback to benchmark catalog due to Kaggle API error: {str(e)[:100]}",
-            }
-            for item in BENCHMARK_CATALOG[:max_results]
-        ]
+    # 3. Cache result
+    if use_cache and results:
+        global_cache.set("kaggle_search", cache_params, results, ttl_seconds=86400)
+
+    return results
 
 
 def inspect_dataset(dataset_id: str) -> Dict[str, Any]:
@@ -164,7 +177,6 @@ def inspect_dataset(dataset_id: str) -> Dict[str, Any]:
         api = KaggleApi()
         api.authenticate()
 
-        owner, dataset_name = dataset_id.split("/")
         files_obj = api.dataset_list_files(dataset_id)
         filenames = [f.name for f in getattr(files_obj, "files", [])]
 
@@ -189,10 +201,7 @@ def download_kaggle_dataset(
     dataset_id: str,
     target_dir: str = "./data/raw",
 ) -> Dict[str, Any]:
-    """Download and extract a Kaggle dataset into a localized raw storage directory.
-
-    Guarantees sandboxing: targets data/raw/<sanitized_id>/ exclusively.
-    """
+    """Download and extract a Kaggle dataset into a localized raw storage directory."""
     if not DATASET_ID_REGEX.match(dataset_id):
         raise ValueError(f"Invalid dataset_id format: '{dataset_id}'. Must match 'owner/dataset-name'.")
 
@@ -201,7 +210,6 @@ def download_kaggle_dataset(
     output_path.mkdir(parents=True, exist_ok=True)
 
     if not _has_kaggle_credentials():
-        # Generate representative sample CSV for testing the pipeline
         sample_csv = output_path / "dataset.csv"
         if not sample_csv.exists():
             import pandas as pd
@@ -216,7 +224,6 @@ def download_kaggle_dataset(
                 "Risk_Score": np.random.normal(0.5, 0.15, size=n_rows),
                 "Is_Fraudulent": np.random.choice([0, 1], size=n_rows, p=[0.94, 0.06]),
             })
-            # Inject duplicate rows for cleaning test
             df = pd.concat([df, df.iloc[:15]], ignore_index=True)
             df.to_csv(sample_csv, index=False)
 

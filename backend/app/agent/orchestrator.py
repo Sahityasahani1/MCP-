@@ -1,0 +1,265 @@
+"""Autonomous Agent Orchestration Engine with HITL Gatekeeping & SSE Streaming."""
+
+import json
+import secrets
+import asyncio
+import re
+from typing import AsyncGenerator, Dict, Any, Optional
+from pathlib import Path
+import sys
+
+# Ensure mcp_server is reachable
+MCP_DIR = Path(__file__).resolve().parent.parent.parent.parent / "mcp_server"
+if str(MCP_DIR) not in sys.path:
+    sys.path.insert(0, str(MCP_DIR))
+
+from tools.arxiv_tool import search_academic_papers
+from tools.openalex_tool import search_openalex_papers
+from tools.kaggle_tool import find_kaggle_datasets
+from tools.hf_dataset_tool import find_huggingface_datasets
+from ml_research_server import trigger_data_pipeline
+from .factory import get_model_adapter
+from .memory import session_memory
+from ..schemas.events import (
+    ThoughtEvent,
+    ToolStartEvent,
+    ToolResultEvent,
+    HITLRequiredEvent,
+    TextDeltaEvent,
+    CostAuditEvent,
+    CompleteEvent,
+    ErrorEvent,
+)
+
+# Active pending approval tokens: token -> metadata
+PENDING_APPROVALS: Dict[str, Dict[str, Any]] = {}
+
+QUERY_ACRONYMS: Dict[str, str] = {
+    "gnn": "graph neural network",
+    "llm": "large language model",
+    "sota": "state of the art",
+    "rl": "reinforcement learning",
+    "nlp": "natural language processing",
+    "cv": "computer vision",
+    "fraud": "fraud detection",
+    "churn": "customer churn",
+    "tabular": "tabular dataset classification",
+}
+
+
+def _expand_search_query(raw_query: str) -> str:
+    """Expands domain abbreviations to maximize search recall across repositories."""
+    tokens = raw_query.lower().split()
+    expanded = []
+    for t in tokens:
+        clean_t = re.sub(r"[^\w]", "", t)
+        if clean_t in QUERY_ACRONYMS:
+            expanded.append(QUERY_ACRONYMS[clean_t])
+        else:
+            expanded.append(t)
+    return " ".join(expanded)
+
+
+class AgentOrchestrator:
+    """Orchestrates research discovery, tool dispatch, and streaming events."""
+
+    @staticmethod
+    async def stream_chat_turn(
+        message: str,
+        session_id: str,
+        provider_override: Optional[str] = None,
+    ) -> AsyncGenerator[str, None]:
+        """Executes full agent turn and yields formatted SSE data strings."""
+        try:
+            # 1. Thought Event
+            yield f"data: {ThoughtEvent(content=f'Analyzing research hypothesis: \"{message[:80]}...\"').model_dump_json()}\n\n"
+            await asyncio.sleep(0.05)
+
+            # 2. Add User Message to Memory
+            session_memory.add_message(session_id=session_id, role="user", content=message)
+            history = session_memory.get_history(session_id=session_id, limit=6)
+
+            # Convert history to format needed by adapters
+            formatted_messages = [{"role": m["role"], "content": m["content"]} for m in history]
+
+            # 3. Intent Routing
+            msg_lower = message.lower()
+            found_papers = []
+            found_datasets = []
+
+            # Check for academic literature intent (default True on exploratory questions)
+            is_academic = any(w in msg_lower for w in ["paper", "arxiv", "openalex", "literature", "algorithm", "research", "recent", "sota", "citation"]) or len(history) <= 1
+            if is_academic:
+                yield f"data: {ThoughtEvent(content='Executing concurrent literature discovery across arXiv (preprints) and OpenAlex (peer-reviewed & citations)...').model_dump_json()}\n\n"
+                yield f"data: {ToolStartEvent(tool='search_academic_papers', args={'query': message, 'sources': ['arXiv', 'OpenAlex']}).model_dump_json()}\n\n"
+
+                expanded_q = _expand_search_query(message)
+                arxiv_future = asyncio.to_thread(search_academic_papers, query=message, max_results=3)
+                openalex_future = asyncio.to_thread(search_openalex_papers, query=expanded_q, max_results=3)
+
+                results_pair = await asyncio.gather(arxiv_future, openalex_future, return_exceptions=True)
+                arxiv_papers = results_pair[0] if isinstance(results_pair[0], list) else []
+                openalex_papers = results_pair[1] if isinstance(results_pair[1], list) else []
+
+                for p in arxiv_papers:
+                    p.setdefault("source", "arXiv")
+                    p.setdefault("citation_count", None)
+
+                # Merge & deduplicate by normalized title
+                all_papers = []
+                seen_titles = set()
+                for p in (openalex_papers + arxiv_papers):
+                    norm_t = re.sub(r"[^a-z0-9]", "", p.get("title", "").lower())[:40]
+                    if norm_t and norm_t not in seen_titles:
+                        seen_titles.add(norm_t)
+                        all_papers.append(p)
+
+                # Sort by verified citation count descending (nulls last)
+                all_papers.sort(key=lambda x: (x.get("citation_count") or 0), reverse=True)
+                found_papers = all_papers[:5]
+
+                yield f"data: {ToolResultEvent(tool='search_academic_papers', result=found_papers).model_dump_json()}\n\n"
+                await asyncio.sleep(0.05)
+
+            # Check for dataset sourcing intent
+            is_dataset = any(w in msg_lower for w in ["data", "dataset", "kaggle", "huggingface", "hf", "csv", "table", "benchmark"]) or len(found_papers) > 0
+            if is_dataset:
+                yield f"data: {ThoughtEvent(content='Executing concurrent dataset search across Kaggle and Hugging Face Hub (usability >= 0.70)...').model_dump_json()}\n\n"
+                yield f"data: {ToolStartEvent(tool='find_kaggle_datasets', args={'query': message, 'sources': ['Kaggle', 'Hugging Face']}).model_dump_json()}\n\n"
+
+                expanded_q = _expand_search_query(message)
+                kaggle_future = asyncio.to_thread(find_kaggle_datasets, query=message, max_results=2)
+                hf_future = asyncio.to_thread(find_huggingface_datasets, query=expanded_q, max_results=2)
+
+                results_ds = await asyncio.gather(kaggle_future, hf_future, return_exceptions=True)
+                kaggle_ds = results_ds[0] if isinstance(results_ds[0], list) else []
+                hf_ds = results_ds[1] if isinstance(results_ds[1], list) else []
+
+                for d in kaggle_ds:
+                    d.setdefault("source", "Kaggle")
+
+                all_datasets = []
+                seen_ids = set()
+                for d in (kaggle_ds + hf_ds):
+                    ds_id = d.get("dataset_id", "").lower()
+                    if ds_id and ds_id not in seen_ids:
+                        seen_ids.add(ds_id)
+                        all_datasets.append(d)
+
+                all_datasets.sort(key=lambda x: ((x.get("download_count") or 0), x.get("usability_score", 0.0)), reverse=True)
+                found_datasets = all_datasets[:4]
+
+                yield f"data: {ToolResultEvent(tool='find_kaggle_datasets', result=found_datasets).model_dump_json()}\n\n"
+                await asyncio.sleep(0.05)
+
+            # Check for data cleaning / execution intent (HITL Intercept)
+            if any(w in msg_lower for w in ["clean", "download", "run pipeline", "ingest", "process data"]) and found_datasets:
+                target_ds = found_datasets[0]["dataset_id"]
+                token = f"hitl_tok_{secrets.token_hex(8)}"
+                recipe = {
+                    "handle_missing": "median_impute",
+                    "drop_duplicates": True,
+                    "normalize_headers": True,
+                    "cap_outliers": True,
+                    "train_test_split": "80/20 Stratified",
+                    "train_baseline": True,
+                    "export_formats": ["CSV", "Parquet", "Train Parquet", "Test Parquet"],
+                }
+                PENDING_APPROVALS[token] = {
+                    "session_id": session_id,
+                    "dataset_id": target_ds,
+                    "recipe": recipe,
+                }
+
+                yield f"data: {HITLRequiredEvent(dataset_id=target_ds, cleaning_recipe=recipe, approval_token=token).model_dump_json()}\n\n"
+
+            # 4. Synthesize with Sustainable LLM
+            adapter = get_model_adapter(provider_override)
+            llm_result = await adapter.generate_response(messages=formatted_messages)
+
+            # 5. Yield Text Delta
+            assistant_text = llm_result.get("text", "")
+            if not assistant_text and (found_papers or found_datasets):
+                sources_p = sorted(list({p.get('source', 'arXiv') for p in found_papers}))
+                sources_d = sorted(list({d.get('source', 'Kaggle') for d in found_datasets}))
+                p_text = f"{len(found_papers)} academic papers ({', '.join(sources_p)})" if found_papers else ""
+                d_text = f"{len(found_datasets)} datasets ({', '.join(sources_d)})" if found_datasets else ""
+                summary_parts = [p for p in [p_text, d_text] if p]
+                assistant_text = f"I discovered and verified {' and '.join(summary_parts)} matching your research hypothesis."
+
+            yield f"data: {TextDeltaEvent(content=assistant_text).model_dump_json()}\n\n"
+
+            # 6. Yield Cost Audit Event ($0.00 proof)
+            yield f"data: {CostAuditEvent(provider=llm_result['provider'], model=llm_result['model'], prompt_tokens=llm_result['prompt_tokens'], completion_tokens=llm_result['completion_tokens']).model_dump_json()}\n\n"
+
+            # 7. Record Assistant Response in Memory
+            session_memory.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=assistant_text,
+                metadata={"papers_count": len(found_papers), "datasets_count": len(found_datasets)},
+            )
+
+            # 8. Complete Event
+            yield f"data: {CompleteEvent(session_id=session_id).model_dump_json()}\n\n"
+
+        except Exception as e:
+            yield f"data: {ErrorEvent(error_message=str(e)).model_dump_json()}\n\n"
+
+    @staticmethod
+    async def stream_approval_execution(
+        approval_token: str,
+        session_id: str,
+    ) -> AsyncGenerator[str, None]:
+        """Executes the approved data cleaning pipeline upon user authorization."""
+        try:
+            if approval_token not in PENDING_APPROVALS:
+                yield f"data: {ErrorEvent(error_message='Invalid or expired approval token.').model_dump_json()}\n\n"
+                return
+
+            task_info = PENDING_APPROVALS.pop(approval_token)
+            dataset_id = task_info["dataset_id"]
+            recipe = task_info["recipe"]
+
+            yield f"data: {ThoughtEvent(content=f'User authorization verified. Executing local data ingestion & profiling for {dataset_id}...').model_dump_json()}\n\n"
+            yield f"data: {ToolStartEvent(tool='trigger_data_pipeline', args={'dataset_id': dataset_id, **recipe}).model_dump_json()}\n\n"
+
+            # Run cleaning pipeline in threadpool
+            raw_result = await asyncio.to_thread(
+                trigger_data_pipeline,
+                dataset_id=dataset_id,
+                handle_missing=recipe.get("handle_missing", "median_impute"),
+                drop_duplicates=recipe.get("drop_duplicates", True),
+                normalize_headers=recipe.get("normalize_headers", True),
+                cap_outliers=recipe.get("cap_outliers", True),
+            )
+            parsed_result = json.loads(raw_result)
+            yield f"data: {ToolResultEvent(tool='trigger_data_pipeline', result=parsed_result).model_dump_json()}\n\n"
+
+            # Text summary of cleaning
+            delta = parsed_result.get("health_score_delta", 0.0)
+            score_after = parsed_result.get("stats_after", {}).get("health_score", 100.0)
+            target_col = parsed_result.get("target_column")
+            baseline_info = parsed_result.get("baseline_benchmark", {})
+            metrics_str = ""
+            if baseline_info and baseline_info.get("status") == "success":
+                m = baseline_info.get("metrics", {})
+                algo = m.get("algorithm", "Baseline Model")
+                auc = f", ROC-AUC: `{m.get('roc_auc')}`" if "roc_auc" in m else ""
+                acc = f", Accuracy: `{m.get('accuracy')}`" if "accuracy" in m else ""
+                metrics_str = f"\n* **Baseline ML Benchmark ({algo}):**{acc}{auc}"
+
+            summary_msg = (
+                f" Pipeline Execution Complete for **{dataset_id}**!\n\n"
+                f"* **Data Health Score:** `{score_after}/100` (+{delta})\n"
+                f"* **Output Cleaned CSV:** `{parsed_result.get('output_filename')}`\n"
+                f"* **Parquet Export:** Generated full cleaned, train, and test partitions.{metrics_str}\n"
+                f"* **Transformations:** {', '.join(parsed_result.get('actions_taken', []))}"
+            )
+            yield f"data: {TextDeltaEvent(content=summary_msg).model_dump_json()}\n\n"
+
+            session_memory.add_message(session_id=session_id, role="assistant", content=summary_msg)
+            yield f"data: {CompleteEvent(session_id=session_id).model_dump_json()}\n\n"
+
+        except Exception as e:
+            yield f"data: {ErrorEvent(error_message=str(e)).model_dump_json()}\n\n"

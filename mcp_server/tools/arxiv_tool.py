@@ -1,7 +1,7 @@
 """arXiv Search Tool for Autonomous ML Research Agent.
 
 Fetches verified academic papers from arXiv with strict metadata and direct PDF URLs.
-Includes fallback to arXiv Export HTTP API if client library fails.
+Includes SQLite TTL query caching and HTTP atom feed fallback.
 """
 
 from typing import List, Dict, Any, Optional
@@ -9,6 +9,7 @@ import re
 import urllib.parse
 import xml.etree.ElementTree as ET
 import requests
+from .cache import global_cache
 
 
 def _clean_text(text: str) -> str:
@@ -38,13 +39,19 @@ def _search_via_arxiv_package(query: str, max_results: int, sort_by: str) -> Lis
     results = []
     for paper in client.results(search):
         clean_id = paper.get_short_id()
+        raw_pdf = paper.pdf_url or f"https://arxiv.org/pdf/{clean_id}.pdf"
+        if raw_pdf.startswith("http://"):
+            raw_pdf = "https://" + raw_pdf[7:]
+        if not raw_pdf.endswith(".pdf"):
+            raw_pdf = f"{raw_pdf}.pdf"
+
         results.append({
             "id": clean_id,
             "title": _clean_text(paper.title),
             "authors": [author.name for author in paper.authors],
             "published": paper.published.strftime("%Y-%m-%d") if paper.published else "",
             "summary": _clean_text(paper.summary)[:400] + ("..." if len(paper.summary) > 400 else ""),
-            "pdf_url": paper.pdf_url or f"https://arxiv.org/pdf/{clean_id}.pdf",
+            "pdf_url": raw_pdf,
             "categories": paper.categories,
         })
     return results
@@ -64,7 +71,6 @@ def _search_via_http_fallback(query: str, max_results: int, sort_by: str) -> Lis
     response = requests.get(encoded_url, timeout=10)
     response.raise_for_status()
 
-    # Parse Atom XML
     root = ET.fromstring(response.text)
     ns = {"atom": "http://www.w3.org/2005/Atom"}
     results = []
@@ -89,11 +95,15 @@ def _search_via_http_fallback(query: str, max_results: int, sort_by: str) -> Lis
             if a.find("atom:name", ns) is not None
         ]
 
-        # Extract direct PDF link
         pdf_url = f"https://arxiv.org/pdf/{arxiv_id}.pdf"
         for link in entry.findall("atom:link", ns):
             if link.attrib.get("title") == "pdf" or link.attrib.get("type") == "application/pdf":
-                pdf_url = link.attrib.get("href", pdf_url)
+                raw_href = link.attrib.get("href", pdf_url)
+                if raw_href.startswith("http://"):
+                    raw_href = "https://" + raw_href[7:]
+                if not raw_href.endswith(".pdf"):
+                    raw_href = f"{raw_href}.pdf"
+                pdf_url = raw_href
                 break
 
         results.append({
@@ -113,25 +123,30 @@ def search_academic_papers(
     query: str,
     max_results: int = 5,
     sort_by: str = "relevance",
+    use_cache: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Search arXiv for verified academic papers matching a research topic.
-
-    Args:
-        query: Search keywords or topic (e.g. 'time series transformer').
-        max_results: Max papers to return (1-10, default: 5).
-        sort_by: Sorting criterion ('relevance', 'lastUpdatedDate', 'submittedDate').
-
-    Returns:
-        List of papers with verified IDs, titles, authors, summaries, and PDF URLs.
-    """
+    """Search arXiv for academic papers with caching and zero URL hallucination."""
     clean_query = query.strip()
     if not clean_query:
         return []
 
     max_results = max(1, min(max_results, 10))
+    cache_params = {"query": clean_query, "max_results": max_results, "sort_by": sort_by}
 
+    # 1. Check TTL Cache
+    if use_cache:
+        cached = global_cache.get("arxiv_search", cache_params)
+        if cached is not None:
+            return cached
+
+    # 2. Fetch from upstream
     try:
-        return _search_via_arxiv_package(clean_query, max_results, sort_by)
+        results = _search_via_arxiv_package(clean_query, max_results, sort_by)
     except Exception:
-        # Fallback to direct HTTP endpoint
-        return _search_via_http_fallback(clean_query, max_results, sort_by)
+        results = _search_via_http_fallback(clean_query, max_results, sort_by)
+
+    # 3. Store in TTL Cache
+    if use_cache and results:
+        global_cache.set("arxiv_search", cache_params, results, ttl_seconds=86400)
+
+    return results

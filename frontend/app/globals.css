@@ -1,0 +1,159 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --brut-red: #FF0000;
+  --brut-blue: #0000FF;
+  --brut-yellow: #FFFF00;
+  --brut-black: #000000;
+  --brut-white: #FFFFFF;
+  --brut-green: #00FF00;
+  --brut-magenta: #FF00FF;
+}
+
+* {
+  border-radius: 0 !important;
+  transition: none !important;
+}
+
+body {
+  background: var(--brut-white);
+  color: var(--brut-black);
+  font-family: Arial, Helvetica, sans-serif;
+  margin: 0;
+  padding: 0;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-weight: 900;
+  text-transform: uppercase;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  color: var(--brut-black);
+}
+
+.mono {
+  font-family: "Courier New", Courier, monospace;
+}
+
+/* Contrast rules: Black text on yellow, green, magenta and red fills; white text only on blue and black */
+.card--red { background: var(--brut-red); color: var(--brut-black); }
+.card--magenta { background: var(--brut-magenta); color: var(--brut-black); }
+.card--blue { background: var(--brut-blue); color: var(--brut-white); }
+.card--black { background: var(--brut-black); color: var(--brut-white); }
+.card--yellow { background: var(--brut-yellow); color: var(--brut-black); }
+.card--green { background: var(--brut-green); color: var(--brut-black); }
+.card--white { background: var(--brut-white); color: var(--brut-black); }
+
+/* Even columns so a short last row never strands one card */
+.grid-brut {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 2rem;
+}
+
+@media (max-width: 640px) {
+  .grid-brut {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  padding: 2rem;
+  border: 4px solid var(--brut-black);
+  background: var(--brut-yellow);
+  box-shadow: 8px 8px 0 var(--brut-black);
+  color: var(--brut-black);
+}
+
+.button,
+.brut-btn {
+  padding: 0.5rem 1.5rem;
+  border: 4px solid var(--brut-black);
+  background: var(--brut-white);
+  color: var(--brut-black);
+  font-weight: 900;
+  text-transform: uppercase;
+  box-shadow: 4px 4px 0 var(--brut-black);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: Arial, Helvetica, sans-serif;
+  text-decoration: none;
+}
+
+/* Instant press: the button drops onto its hard shadow */
+.button:active,
+.brut-btn:active {
+  transform: translate(4px, 4px) !important;
+  box-shadow: none !important;
+}
+
+.button:focus-visible,
+.brut-btn:focus-visible,
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 4px solid var(--brut-blue) !important;
+  outline-offset: 4px !important;
+}
+
+.brut-link:hover,
+.nav a:hover,
+a.brut-strike:hover {
+  text-decoration: line-through;
+}
+
+/* Color modifier buttons */
+.button--blue,
+.brut-btn--blue {
+  background: var(--brut-blue);
+  color: var(--brut-white);
+}
+.button--blue:hover,
+.brut-btn--blue:hover {
+  background: #0000dd;
+}
+
+.button--green,
+.brut-btn--green {
+  background: var(--brut-green);
+  color: var(--brut-black);
+}
+.button--green:hover,
+.brut-btn--green:hover {
+  background: #00dd00;
+}
+
+.button--yellow,
+.brut-btn--yellow {
+  background: var(--brut-yellow);
+  color: var(--brut-black);
+}
+
+.button--red,
+.brut-btn--red {
+  background: var(--brut-red);
+  color: var(--brut-black);
+}
+
+.button--black,
+.brut-btn--black {
+  background: var(--brut-black);
+  color: var(--brut-white);
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
