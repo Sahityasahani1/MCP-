@@ -100,19 +100,25 @@ def find_kaggle_datasets(
 
     # 2. Fetch or Benchmark Fallback
     if not _has_kaggle_credentials():
+        q_tokens = [w for w in re.findall(r"\w+", clean_query) if len(w) > 2]
         matches = []
         for item in BENCHMARK_CATALOG:
-            tags_text = " ".join(item["tags"])
-            if (
-                clean_query in item["title"].lower()
-                or clean_query in item["dataset_id"].lower()
-                or any(t in clean_query for t in item["tags"])
-                or not clean_query
-            ):
+            item_text = (item["title"] + " " + item["dataset_id"] + " " + " ".join(item["tags"])).lower()
+            matched_tokens = [t for t in q_tokens if t in item_text]
+            if matched_tokens or not clean_query:
                 if item["size_mb"] <= max_size_mb and item["usability_score"] >= min_usability_score:
-                    matches.append({**item, "is_mock_demo": True})
-        
-        if not matches:
+                    matches.append({
+                        **item,
+                        "is_mock_demo": True,
+                        "_relevance": len(matched_tokens) if matched_tokens else 0,
+                    })
+
+        matches.sort(key=lambda x: x.get("_relevance", 0), reverse=True)
+        for m in matches:
+            m.pop("_relevance", None)
+
+        # Only return fallback benchmark items if query is empty or matched relevant tokens
+        if not matches and not clean_query:
             matches = [{**item, "is_mock_demo": True} for item in BENCHMARK_CATALOG[:max_results]]
         results = matches[:max_results]
     else:
@@ -141,14 +147,13 @@ def find_kaggle_datasets(
                 if len(results) >= max_results:
                     break
         except Exception as e:
-            results = [
-                {
-                    **item,
-                    "is_mock_demo": True,
-                    "note": f"Fallback to benchmark catalog due to Kaggle API error: {str(e)[:100]}",
-                }
-                for item in BENCHMARK_CATALOG[:max_results]
+            q_tokens = [w for w in re.findall(r"\w+", clean_query) if len(w) > 2]
+            matched_fb = [
+                {**item, "is_mock_demo": True, "note": f"Fallback: {str(e)[:60]}"}
+                for item in BENCHMARK_CATALOG
+                if any(t in (item["title"] + " " + " ".join(item["tags"])).lower() for t in q_tokens) or not clean_query
             ]
+            results = matched_fb[:max_results]
 
     # 3. Cache result
     if use_cache and results:

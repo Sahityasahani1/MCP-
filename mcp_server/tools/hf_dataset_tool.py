@@ -114,35 +114,33 @@ def find_huggingface_datasets(
             return cached
 
     # 2. Fetch from Hugging Face REST API
-    params = {
-        "search": clean_query,
-        "limit": max_results,
-        "full": "true",
-    }
-    url = f"https://huggingface.co/api/datasets?{urllib.parse.urlencode(params)}"
-    headers = {
-        "User-Agent": "AMRA-Research-Agent/3.0",
-        "Accept": "application/json",
-    }
-
     results: List[Dict[str, Any]] = []
 
-    try:
+    def _fetch_hf_api(search_term: str) -> List[Dict[str, Any]]:
+        params = {
+            "search": search_term,
+            "limit": max_results,
+            "full": "true",
+        }
+        url = f"https://huggingface.co/api/datasets?{urllib.parse.urlencode(params)}"
+        headers = {
+            "User-Agent": "AMRA-Research-Agent/3.0",
+            "Accept": "application/json",
+        }
         req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=8) as response:
             items = json.loads(response.read().decode("utf-8"))
+            parsed = []
             for item in items:
                 dataset_id = item.get("id", "")
                 if not dataset_id:
                     continue
-
                 downloads = int(item.get("downloads", 0) or 0)
                 likes = int(item.get("likes", 0) or 0)
                 tags = [str(t) for t in (item.get("tags") or [])]
                 size_mb = _estimate_size_mb(tags)
                 usability = _compute_usability_score(downloads, likes)
-
-                results.append({
+                parsed.append({
                     "dataset_id": dataset_id,
                     "title": _format_title(dataset_id),
                     "size_mb": size_mb,
@@ -154,17 +152,29 @@ def find_huggingface_datasets(
                     "source": "Hugging Face",
                     "is_mock_demo": False,
                 })
+            return parsed
+
+    try:
+        # First attempt: full cleaned query
+        results = _fetch_hf_api(clean_query)
+        # Second attempt: if no results, try individual keywords
+        if not results:
+            terms = [w for w in clean_query.split() if len(w) > 3]
+            for term in terms[:2]:
+                results = _fetch_hf_api(term)
+                if results:
+                    break
     except Exception:
-        # Fallback to relevant items from HF_BENCHMARK_CATALOG
+        # Fallback only to matching items in HF_BENCHMARK_CATALOG
         q_tokens = clean_query.lower().split()
         matched = [
             cat for cat in HF_BENCHMARK_CATALOG
             if any(t in cat["dataset_id"].lower() or any(t in tag for tag in cat["tags"]) for t in q_tokens)
         ]
-        results = (matched or HF_BENCHMARK_CATALOG)[:max_results]
+        results = matched[:max_results]
 
-    # If no results returned from API, fallback to catalog
-    if not results:
+    # Only fallback to default catalog if clean_query is empty
+    if not results and not clean_query:
         results = HF_BENCHMARK_CATALOG[:max_results]
 
     # 3. Store in TTL Cache

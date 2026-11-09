@@ -11,8 +11,8 @@ AMRA is an enterprise-grade AI workspace designed to eliminate manual toil in ea
 ### Architectural Tiers:
 1. **Frontend (Presentation Tier):** Next.js 15 (App Router), TypeScript, Tailwind CSS. Consumes real-time Server-Sent Events (SSE) and renders structured cards (PaperCard, DatasetCard, ApprovalPrompt, DataPreviewTable).
 2. **Middleware Host (Agent & Session Tier):** FastAPI (Python 3.11+), Pydantic v2 schemas, SQLite WAL-mode session store, provider-agnostic LLM interface (Gemini 2.5 Flash, Groq Llama 3.3 70B, Ollama Qwen 2.5 14B).
-3. **Execution Layer (MCP Tools):** FastMCP server (`mcp_server/ml_research_server.py`), academic paper search (arXiv API), dataset discovery (Kaggle API + benchmark fallbacks), SQLite TTL cache (<1ms hits), and autonomous Pandas data cleaning/profiling pipeline.
-4. **Data Lake (Storage Tier):** Local isolated directories: `/data/raw/` for raw ingestion and `/processed_data/` for cleaned CSV and Apache Parquet exports.
+3. **Execution Layer (MCP Tools):** FastMCP server (`mcp_server/ml_research_server.py`), academic paper search (arXiv API + OpenAlex API for 250M+ works with citation metrics), dataset discovery (Kaggle API + Hugging Face Hub API + benchmark catalog), SQLite TTL cache (<1ms hits), and autonomous Pandas + LightGBM data cleaning, outlier profiling, and baseline modeling pipeline.
+4. **Data Lake (Storage Tier):** Local isolated directories: `/data/raw/` for raw ingestion and `/processed_data/` for cleaned CSV and Apache Parquet (full, train, test) exports.
 
 ```
 Next.js 15 (Frontend)
@@ -25,9 +25,11 @@ FastAPI Middleware (/backend) ── SQLite Session Memory
     ▼  │
 FastMCP Server (/mcp_server) ── SQLite TTL Cache
     │
-    ├── arXiv Discovery Tool
-    ├── Kaggle Dataset Tool
-    └── Pandas Cleaning & Health Scoring Engine (Requires HITL Approval)
+    ├── arXiv Discovery Tool (Preprints & PDFs)
+    ├── OpenAlex Tool (250M+ Works, Citations & DOIs)
+    ├── Kaggle Dataset Tool (Benchmarks & Usability)
+    ├── Hugging Face Hub Tool (150K+ Datasets)
+    └── Pandas + LightGBM Cleaning & Baseline Engine (Requires HITL Approval)
 ```
 
 ---
@@ -71,6 +73,7 @@ Before concluding any task or committing changes, ensure that all 6 global bench
 
 Run tests:
 ```powershell
+python tests/test_multi_source.py
 python tests/test_phase1_production.py
 python tests/test_phase2_backend.py
 ```

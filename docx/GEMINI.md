@@ -82,6 +82,9 @@ stateDiagram-v2
 Antigravity must never conclude a code modification turn without validating against the project benchmark test suite:
 
 ```powershell
+# Run Multi-Source Discovery Benchmark (OpenAlex + Hugging Face)
+python tests/test_multi_source.py
+
 # Run MCP Execution & Security Benchmark
 python tests/test_phase1_production.py
 

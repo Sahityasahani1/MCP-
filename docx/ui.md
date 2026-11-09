@@ -1,60 +1,46 @@
-# ui.md — AMRA Interactive Cursor Design System Specifications
+# ui.md — AMRA UI/UX Specifications & Neo-Brutalism Design System
 
 > **Frontend Framework:** Next.js 15 (App Router), React 19, TypeScript  
-> **Aesthetic Archetype:** Interactive Cursor Design (Custom Cursor, Cursor as Tool, Morphing, Trails, Magnetic Pull)  
-> **Color Palette:** Primary `#000000`, `#FFFFFF`; Secondary `#EC4899`, `#111827`  
-> **Communication Protocol:** Real-time Server-Sent Events (SSE) Stream  
+> **Styling Framework:** Tailwind CSS, Brutalism Design Tokens  
+> **Aesthetic Archetype:** Brutalism / Anti-Design (Raw, Stark, High-Contrast, Thick Borders, 0px Radius, Hard Offset Shadows)  
+> **Communication Protocol:** Server-Sent Events (SSE) Stream  
 
 ---
 
-> ⚠️ **Industry & Use-Case Suitability Notice:**
-> Interactive Cursor Design transforms the cursor into a primary engagement mechanism. While ideal for creative portfolios, agency showcases, and interactive demonstrations, custom cursor mechanics and magnetic pull are generally avoided in mobile-first applications (where touch replaces pointer interactions), dense financial data entry forms, and accessibility-critical environments. 
-> To safeguard accessibility, AMRA strictly disables custom cursor trails and magnetic motions under `prefers-reduced-motion: reduce`, preserves visible native keyboard focus indicators (`:focus-visible`), and activates `cursor: none` *only* inside `@media (hover: hover) and (pointer: fine)`.
+## 1. UI/UX Design Philosophy: Brutalism & Anti-Design
 
----
+Inspired by Brutalist architecture and hacker-grade research terminals, AMRA's user interface embraces raw, honest, and unpolished aesthetics:
 
-## 1. Interactive Cursor Architecture & Capabilities
-
-1. **Native Cursor Hiding with Media Boundaries:**
-   - The native operating system pointer is hidden with `cursor: none !important;` *only* on devices reporting `@media (hover: hover) and (pointer: fine)`. Mobile and touch devices retain their default native behavior.
-2. **Dual-Layer Fixed Cursor Loop (`requestAnimationFrame` & `translate3d`):**
-   - **Central Core Dot:** 8px circle with zero latency following the exact mouse coordinate.
-   - **Follower Ring:** Smoothly interpolated follower with a linear interpolation factor ($\text{lerp} \approx 0.18$). When distance $< 0.1\text{px}$, the animation frame cancels automatically to eliminate idle CPU cycles.
-3. **Inversion with `mix-blend-mode: difference`:**
-   - The cursor inverts colors cleanly against light and dark content (`#FFFFFF` inverts against `#000000`, `#111827`, and `#EC4899`).
-4. **Context-Aware Morphing (`data-cursor`):**
-   - When hovering interactive targets (and *never* on static text or cards), the ring expands to 56px and displays a context label:
-     - `data-cursor="switch"` over AI mode buttons.
-     - `data-cursor="pdf"` over verified paper PDF buttons.
-     - `data-cursor="view"` over dataset source links.
-     - `data-cursor="approve"` over data preparation buttons.
-     - `data-cursor="cancel"` over cancel buttons.
-     - `data-cursor="tab"` over preview tabs.
-     - `data-cursor="csv"` over spreadsheet download links.
-     - `data-cursor="send"` over research prompt submission.
-5. **Magnetic Button Attraction (`data-magnetic="true"`):**
-   - When the pointer enters a magnetic button, the element is drawn toward the pointer coordinates by approximately 25% of the distance from center:
-     $$\Delta X = (X_{\text{mouse}} - X_{\text{center}}) \times 0.25, \quad \Delta Y = (Y_{\text{mouse}} - Y_{\text{center}}) \times 0.25$$
-   - On `pointerleave`, the element smoothly eases back to origin with `transform: translate3d(0, 0, 0)` using a cubic bezier transition.
-6. **Trailing Particle Effects:**
-   - Emits a trailing tail of 4 translucent pink `#EC4899` particle dots that dynamically fade behind pointer movements.
+1. **Anti-Design & Raw Utility:** Eliminates artificial rounded corners (`border-radius: 0;`), glassmorphism, and slow transition animations (`transition: none;`). Every element has tactile, deliberate edges.
+2. **Heavy Black Typography & Default Fonts:** Uses `Arial, Helvetica, sans-serif` for primary copy and `Courier New, Courier, monospace` for code, with heavy black weights (`font-weight: 900;`) and bold uppercase titles.
+3. **Thick Borders & Hard Offset Shadows:** All cards and interactive elements feature thick borders (`border: 4px solid #000000;`) and stark, hard offset drop shadows (`box-shadow: 4px 4px 0 #000000;` or `6px 6px 0 #000000;`).
+4. **Instant State Changes:** Interactive buttons feature zero animation delay. On `:active`, buttons translate directly into their hard shadow (`transform: translate(3px, 3px); box-shadow: none;`).
+5. **Human-in-the-Loop High Alert:** Destructive or local disk actions are gated behind high-contrast warning red (`#FF0000`) containers with stark black borders.
 
 ---
 
 ## 2. Design Tokens & Visual Hierarchy
 
-### 2.1 Color Palette
-| Token | Variable | Hex Value | Semantic Usage & Contrast |
+### 2.1 Brutalism Color Palette
+| Token | Variable | Hex Value | WCAG Contrast Rule & Usage |
 | :--- | :--- | :--- | :--- |
-| **Primary Black** | `--cursor-primary-black` | `#000000` | Input backgrounds, metric tiles, depth overlays |
-| **Primary White** | `--cursor-primary-white` | `#FFFFFF` | Primary headings, button text, inverted cursor dot |
-| **Secondary Pink** | `--cursor-secondary-pink` | `#EC4899` | Primary action buttons, active badges, cursor trails |
-| **Secondary Dark** | `--cursor-secondary-dark` | `#111827` | Deep slate page background & card containers |
+| **Brut Red** | `--brut-red` | `#FF0000` | Black text on Red (`card--red`); HITL security gate alert |
+| **Brut Blue** | `--brut-blue` | `#0000FF` | White text on Blue (`card--blue`); primary CTA buttons, focus rings |
+| **Brut Yellow**| `--brut-yellow`| `#FFFF00` | Black text on Yellow (`card--yellow`); literature discovery cards, thoughts |
+| **Brut Cyan** | `--brut-cyan` | `#00FFFF` | Black text on Cyan (`card--cyan`); peer-reviewed tags, highlights |
+| **Brut Black** | `--brut-black` | `#000000` | White text on Black (`card--black`); structural borders, shadows, table headers |
+| **Brut White** | `--brut-white` | `#FFFFFF` | Black text on White (`card--white`); page background, data table cells |
+| **Brut Green** | `--brut-green` | `#00FF00` | Black text on Green (`card--green`); dataset cards, citation badges, health scores |
+| **Brut Magenta**| `--brut-magenta`| `#FF00FF` | Black text on Magenta (`card--magenta`); MCP version badges, highlights |
 
-### 2.2 Contrast & Accessibility Compliance
-- **WCAG AA Compliance:** `#FFFFFF` text on `#111827` delivers a contrast ratio $> 16:1$ (AAA standard). Black text on `#EC4899` and `#EC4899` text on `#111827` deliver $> 4.5:1$ (AA standard).
-- **Keyboard Navigation:** Native focus outlines are preserved for keyboard tab traversal (`outline: 2px solid #EC4899 !important; outline-offset: 3px !important;`).
-- **Screen Reader Support:** All icon-only controls carry explicit `aria-label` attributes.
+> **Contrast Rule:** Black text is strictly enforced on yellow, green, cyan, magenta, and red fills; white text is reserved for blue and black fills to ensure 100% WCAG AA contrast compliance.
+
+### 2.2 Typography Scale
+- **Display Header:** `h1` `font-black text-xl md:text-2xl uppercase tracking-tight text-black`
+- **Section Heading:** `h3` `font-black text-xs uppercase text-black bg-[#FFFF00] border-2 border-black px-2.5 py-1`
+- **Card Title:** `h4` `font-black text-base uppercase text-black leading-snug`
+- **Body & Prompts:** `font-bold text-sm leading-relaxed text-black`
+- **Code & Metadata:** `font-mono text-xs font-bold uppercase text-black`
 
 ---
 
@@ -62,15 +48,50 @@
 
 ```
 frontend/app/
-├── layout.tsx                 # Injects <InteractiveCursor /> & root #111827 dark canvas
-└── page.tsx                   # Centered responsive workspace container
+├── layout.tsx                 # Root layout with 0px radius, selection highlights & font setup
+└── page.tsx                   # Main workspace shell with thick black border boundaries
 frontend/components/
-├── InteractiveCursor.tsx      # Core rAF cursor controller, morphing engine & magnetic tracker
-├── ChatInterface.tsx          # Real-time chat loop with magnetic switchers & send CTA
-├── PaperCard.tsx              # Paper card with magnetic "Read PDF" morphing button
-├── DatasetCard.tsx            # Dataset card with magnetic "View Source" morphing link
-├── ApprovalPrompt.tsx         # Safety prompt with magnetic "Approve" and "Cancel" buttons
-└── DataPreviewTable.tsx       # Tabular data preview with magnetic tabs & download CTA
+├── ChatInterface.tsx          # Real-time SSE chat loop, multi-source event aggregator & thought disclosure
+├── PaperCard.tsx              # Multi-source literature card (arXiv + OpenAlex citations, OA PDFs & DOIs)
+├── DatasetCard.tsx            # Multi-source dataset card (Kaggle + Hugging Face likes, downloads & tags)
+├── ApprovalPrompt.tsx         # High-contrast HITL security confirmation modal (#FF0000 fill)
+└── DataPreviewTable.tsx       # Tabular data preview, health gauge, baseline metrics & CSV export
 frontend/lib/
 └── sse-client.ts              # EventSource & fetch streaming buffer parser
 ```
+
+---
+
+## 4. Multi-Source Component Specifications
+
+### 4.1 PaperCard (`PaperCard.tsx`)
+- **Card Background:** Brutalist Yellow (`#FFFF00`) with 4px solid black border and `6px 6px 0 #000000` drop shadow.
+- **Source Badges:**
+  - `ARXIV: {id}` or `OPENALEX: {id}` rendered in high-contrast black on white.
+  - `CITATIONS: {count}` badge rendered in Brutalist Green (`#00FF00`) with `Award` icon.
+  - `PEER REVIEWED` indicator in Cyan (`#00FFFF`) for OpenAlex entries.
+- **Action Buttons:**
+  - `VERIFIED PDF`: Direct hyperlink to canonical open-access PDF.
+  - `DOI`: External link button resolving directly to `https://doi.org/...`.
+- **Abstract Box:** Solid white container (`#FFFFFF`) with 2px black border.
+
+### 4.2 DatasetCard (`DatasetCard.tsx`)
+- **Card Background:** Brutalist Green (`#00FF00`) with 4px solid black border and `6px 6px 0 #000000` drop shadow.
+- **Source Badges:**
+  - `KAGGLE DATASET`: Solid black badge with white text.
+  - `HUGGING FACE`: Solid yellow badge with black text.
+  - `LIKES`: White badge with solid red heart icon (`Heart`).
+  - `VERIFIED BENCHMARK`: Magenta badge (`#FF00FF`) for offline catalog fallbacks.
+- **Modality Tags:** Monospace tags (`#tabular`, `#csv`, `#finance`, `#classification`).
+- **3-Column Metrics Grid:** Individual white brutalist boxes for Usability Score (%), File Size (MB), and Download Counts.
+
+### 4.3 ApprovalPrompt (`ApprovalPrompt.tsx`)
+- **Card Background:** High-alert Brutalist Red (`#FF0000`) with 4px solid black border.
+- **Security Gating:** Displays target dataset ID, proposed transformations, and single-use cryptographic token.
+- **Interactive Action:** `APPROVE & CLEAN DATASET` CTA button with active shadow translation.
+
+### 4.4 DataPreviewTable (`DataPreviewTable.tsx`)
+- **Header Summary:** Dual-state Data Health Score gauge ($0.0 \to 100.0$) with delta indicator (`+1.4 pts`).
+- **Baseline ML Metrics:** Displays LightGBM benchmark results (Algorithm, Accuracy, ROC-AUC).
+- **Tabular Grid:** First 5 rows of cleaned data in a stark grid with black headers and alternating white rows.
+- **Export Action:** Direct download button for cleaned CSV and Parquet partitions.

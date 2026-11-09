@@ -1,4 +1,4 @@
-# ui.md — AMRA UI/UX Specifications & Brutalism Design System
+# ui.md — AMRA UI/UX Specifications & Neo-Brutalism Design System
 
 > **Frontend Framework:** Next.js 15 (App Router), React 19, TypeScript  
 > **Styling Framework:** Tailwind CSS, Brutalism Design Tokens  
@@ -13,8 +13,8 @@ Inspired by Brutalist architecture and hacker-grade research terminals, AMRA's u
 
 1. **Anti-Design & Raw Utility:** Eliminates artificial rounded corners (`border-radius: 0;`), glassmorphism, and slow transition animations (`transition: none;`). Every element has tactile, deliberate edges.
 2. **Heavy Black Typography & Default Fonts:** Uses `Arial, Helvetica, sans-serif` for primary copy and `Courier New, Courier, monospace` for code, with heavy black weights (`font-weight: 900;`) and bold uppercase titles.
-3. **Thick Borders & Hard Offset Shadows:** All cards and interactive elements feature thick borders (`border: 4px solid #000000;`) and stark, hard offset drop shadows (`box-shadow: 4px 4px 0 #000000;` or `8px 8px 0 #000000;`).
-4. **Instant State Changes:** Interactive buttons feature zero animation delay. On `:active`, buttons translate directly into their hard shadow (`transform: translate(4px, 4px); box-shadow: none;`).
+3. **Thick Borders & Hard Offset Shadows:** All cards and interactive elements feature thick borders (`border: 4px solid #000000;`) and stark, hard offset drop shadows (`box-shadow: 4px 4px 0 #000000;` or `6px 6px 0 #000000;`).
+4. **Instant State Changes:** Interactive buttons feature zero animation delay. On `:active`, buttons translate directly into their hard shadow (`transform: translate(3px, 3px); box-shadow: none;`).
 5. **Human-in-the-Loop High Alert:** Destructive or local disk actions are gated behind high-contrast warning red (`#FF0000`) containers with stark black borders.
 
 ---
@@ -26,13 +26,14 @@ Inspired by Brutalist architecture and hacker-grade research terminals, AMRA's u
 | :--- | :--- | :--- | :--- |
 | **Brut Red** | `--brut-red` | `#FF0000` | Black text on Red (`card--red`); HITL security gate alert |
 | **Brut Blue** | `--brut-blue` | `#0000FF` | White text on Blue (`card--blue`); primary CTA buttons, focus rings |
-| **Brut Yellow**| `--brut-yellow`| `#FFFF00` | Black text on Yellow (`card--yellow`); arXiv literature cards, thoughts |
+| **Brut Yellow**| `--brut-yellow`| `#FFFF00` | Black text on Yellow (`card--yellow`); literature discovery cards, thoughts |
+| **Brut Cyan** | `--brut-cyan` | `#00FFFF` | Black text on Cyan (`card--cyan`); peer-reviewed tags, highlights |
 | **Brut Black** | `--brut-black` | `#000000` | White text on Black (`card--black`); structural borders, shadows, table headers |
 | **Brut White** | `--brut-white` | `#FFFFFF` | Black text on White (`card--white`); page background, data table cells |
-| **Brut Green** | `--brut-green` | `#00FF00` | Black text on Green (`card--green`); Kaggle dataset cards, health scores |
+| **Brut Green** | `--brut-green` | `#00FF00` | Black text on Green (`card--green`); dataset cards, citation badges, health scores |
 | **Brut Magenta**| `--brut-magenta`| `#FF00FF` | Black text on Magenta (`card--magenta`); MCP version badges, highlights |
 
-> **Contrast Rule:** Black text is enforced on yellow, green, magenta, and red fills; white text is strictly reserved for blue and black fills to ensure 100% WCAG AA contrast compliance.
+> **Contrast Rule:** Black text is strictly enforced on yellow, green, cyan, magenta, and red fills; white text is reserved for blue and black fills to ensure 100% WCAG AA contrast compliance.
 
 ### 2.2 Typography Scale
 - **Display Header:** `h1` `font-black text-xl md:text-2xl uppercase tracking-tight text-black`
@@ -50,54 +51,47 @@ frontend/app/
 ├── layout.tsx                 # Root layout with 0px radius, selection highlights & font setup
 └── page.tsx                   # Main workspace shell with thick black border boundaries
 frontend/components/
-├── ChatInterface.tsx          # Real-time SSE chat loop, engine switcher & thought disclosure
-├── PaperCard.tsx              # Brutalist arXiv literature discovery card (#FFFF00 fill)
-├── DatasetCard.tsx            # Brutalist Kaggle dataset card (#00FF00 fill)
+├── ChatInterface.tsx          # Real-time SSE chat loop, multi-source event aggregator & thought disclosure
+├── PaperCard.tsx              # Multi-source literature card (arXiv + OpenAlex citations, OA PDFs & DOIs)
+├── DatasetCard.tsx            # Multi-source dataset card (Kaggle + Hugging Face likes, downloads & tags)
 ├── ApprovalPrompt.tsx         # High-contrast HITL security confirmation modal (#FF0000 fill)
-└── DataPreviewTable.tsx       # Tabular data preview, health gauge & CSV export
+└── DataPreviewTable.tsx       # Tabular data preview, health gauge, baseline metrics & CSV export
 frontend/lib/
 └── sse-client.ts              # EventSource & fetch streaming buffer parser
 ```
 
 ---
 
-## 4. Component Specifications
+## 4. Multi-Source Component Specifications
 
-### 4.1 Header & Status Bar (`ChatInterface.tsx`)
-- **Brand Title:** `AMRA // RESEARCH AGENT` in heavy black uppercase.
-- **MCP Version Tag:** `MCP v2.0` in `#FF00FF` magenta chip with 2px black border.
-- **Engine Switcher:**
-  - Active Engine: `#0000FF` blue fill with white text, 2px border, 2px hard shadow.
-  - Inactive Engine: White fill with black text, hover yellow `#FFFF00` fill.
+### 4.1 PaperCard (`PaperCard.tsx`)
+- **Card Background:** Brutalist Yellow (`#FFFF00`) with 4px solid black border and `6px 6px 0 #000000` drop shadow.
+- **Source Badges:**
+  - `ARXIV: {id}` or `OPENALEX: {id}` rendered in high-contrast black on white.
+  - `CITATIONS: {count}` badge rendered in Brutalist Green (`#00FF00`) with `Award` icon.
+  - `PEER REVIEWED` indicator in Cyan (`#00FFFF`) for OpenAlex entries.
+- **Action Buttons:**
+  - `VERIFIED PDF`: Direct hyperlink to canonical open-access PDF.
+  - `DOI`: External link button resolving directly to `https://doi.org/...`.
+- **Abstract Box:** Solid white container (`#FFFFFF`) with 2px black border.
 
-### 4.2 PaperCard (`components/PaperCard.tsx`)
-- **Container:** Yellow background (`#FFFF00`), 4px solid black border, 6px hard shadow.
-- **Top Bar:** White arXiv ID tag with 2px border; Verified PDF button with `#0000FF` blue fill and white text.
-- **Abstract Box:** White background with 2px black border and 3px hard shadow.
+### 4.2 DatasetCard (`DatasetCard.tsx`)
+- **Card Background:** Brutalist Green (`#00FF00`) with 4px solid black border and `6px 6px 0 #000000` drop shadow.
+- **Source Badges:**
+  - `KAGGLE DATASET`: Solid black badge with white text.
+  - `HUGGING FACE`: Solid yellow badge with black text.
+  - `LIKES`: White badge with solid red heart icon (`Heart`).
+  - `VERIFIED BENCHMARK`: Magenta badge (`#FF00FF`) for offline catalog fallbacks.
+- **Modality Tags:** Monospace tags (`#tabular`, `#csv`, `#finance`, `#classification`).
+- **3-Column Metrics Grid:** Individual white brutalist boxes for Usability Score (%), File Size (MB), and Download Counts.
 
-### 4.3 DatasetCard (`components/DatasetCard.tsx`)
-- **Container:** Green background (`#00FF00`), 4px solid black border, 6px hard shadow.
-- **Badges:** Black Kaggle chip with white text; Magenta demo benchmark tag.
-- **Metrics Grid:** 3 white metric cards with 2px black borders and 3px hard shadows displaying Usability, Size, and Download Counts.
+### 4.3 ApprovalPrompt (`ApprovalPrompt.tsx`)
+- **Card Background:** High-alert Brutalist Red (`#FF0000`) with 4px solid black border.
+- **Security Gating:** Displays target dataset ID, proposed transformations, and single-use cryptographic token.
+- **Interactive Action:** `APPROVE & CLEAN DATASET` CTA button with active shadow translation.
 
-### 4.4 ApprovalPrompt (`components/ApprovalPrompt.tsx`)
-- **Container:** Warning Red background (`#FF0000`), 4px solid black border, 8px hard shadow.
-- **Warning Banner:** Black chip with yellow alert icon and white text.
-- **Cleaning Recipe:** White background with 3px black border displaying proposed parameters in monospace.
-- **CTA Buttons:** Green `#00FF00` approval button with black text; white abort button with black border.
-
-### 4.5 DataPreviewTable (`components/DataPreviewTable.tsx`)
-- **Container:** White background, 4px solid black border, 8px hard shadow.
-- **Health Score Badge:** Green `#00FF00` chip with black text and delta indicator.
-- **Metric Tiles:** 4 yellow `#FFFF00` metric cards displaying clean rows, columns, nulls resolved, and duplicates dropped.
-- **Tab Switcher:** Black active tab with white text; white inactive tabs with hover yellow.
-- **Table Grid:** Solid black 3px border, black header row with white text, alternating white and neutral-100 rows with 2px black cell borders.
-
----
-
-## 5. Accessibility & Motion Rules
-
-- **WCAG AA Contrast:** Checked across all color pairs. High-contrast black type on high-luminance fills (yellow, green, white, red); high-contrast white type on low-luminance fills (blue, black).
-- **Focus Rings:** Visible focus ring on all interactive elements via `outline: 4px solid #0000FF !important; outline-offset: 4px !important;`.
-- **Labels:** Explicit `aria-label` attributes on icon-only and interactive controls.
-- **Prefers-Reduced-Motion:** Instant transitions by default (`transition: none;`); `@media (prefers-reduced-motion: reduce)` zeroes all remaining animation properties.
+### 4.4 DataPreviewTable (`DataPreviewTable.tsx`)
+- **Header Summary:** Dual-state Data Health Score gauge ($0.0 \to 100.0$) with delta indicator (`+1.4 pts`).
+- **Baseline ML Metrics:** Displays LightGBM benchmark results (Algorithm, Accuracy, ROC-AUC).
+- **Tabular Grid:** First 5 rows of cleaned data in a stark grid with black headers and alternating white rows.
+- **Export Action:** Direct download button for cleaned CSV and Parquet partitions.

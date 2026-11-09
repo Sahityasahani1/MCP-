@@ -46,6 +46,41 @@ QUERY_ACRONYMS: Dict[str, str] = {
     "tabular": "tabular dataset classification",
 }
 
+STOP_PHRASES = [
+    "can you find me", "find me", "can you", "please find", "show me", "give me",
+    "search for", "look for", "i want to find", "i need", "looking for",
+    "recent papers on", "papers on", "papers about", "paper on", "paper about",
+    "academic papers on", "literature on", "source datasets for", "source dataset for",
+    "datasets for", "dataset for", "datasets on", "dataset on",
+    "benchmark dataset to", "benchmark dataset", "benchmark to test them",
+    "and clean it", "and clean a", "and download", "to test them", "to test it",
+    "check the durability of the project", "challenge this website",
+    "how does the backend work", "how it works", "what tech is used"
+]
+
+GENERIC_SEARCH_STOPWORDS = {
+    "a", "an", "the", "and", "or", "in", "on", "at", "to", "for", "of", "with",
+    "by", "from", "up", "about", "into", "over", "after", "is", "are", "was",
+    "were", "be", "been", "being", "have", "has", "had", "do", "does", "did",
+    "can", "could", "will", "would", "should", "some", "any", "this", "that",
+    "these", "those", "my", "your", "its", "their", "our", "all", "both",
+    "each", "few", "more", "most", "other", "such", "only", "own", "same",
+    "so", "than", "too", "very", "just", "now", "paper", "papers",
+    "dataset", "datasets", "data", "benchmark", "benchmarks", "clean",
+    "cleaned", "cleaning", "recent", "sota", "source", "find", "search"
+}
+
+
+def _extract_search_keywords(raw_text: str) -> str:
+    """Strips conversational boilerplate and isolates the actual research domain/subject."""
+    cleaned = raw_text.lower()
+    for phrase in STOP_PHRASES:
+        cleaned = cleaned.replace(phrase, " ")
+    cleaned = re.sub(r"[^\w\s-]", " ", cleaned)
+    words = [w for w in cleaned.split() if w not in GENERIC_SEARCH_STOPWORDS and len(w) > 2]
+    keywords = " ".join(words).strip()
+    return keywords if keywords else raw_text.strip()
+
 
 def _expand_search_query(raw_query: str) -> str:
     """Expands domain abbreviations to maximize search recall across repositories."""
@@ -82,19 +117,33 @@ class AgentOrchestrator:
             # Convert history to format needed by adapters
             formatted_messages = [{"role": m["role"], "content": m["content"]} for m in history]
 
-            # 3. Intent Routing
+            # 3. Intent Routing & Clean Keyword Extraction
             msg_lower = message.lower()
+            clean_keywords = _extract_search_keywords(message)
+            expanded_q = _expand_search_query(clean_keywords)
             found_papers = []
             found_datasets = []
 
-            # Check for academic literature intent (default True on exploratory questions)
-            is_academic = any(w in msg_lower for w in ["paper", "arxiv", "openalex", "literature", "algorithm", "research", "recent", "sota", "citation"]) or len(history) <= 1
-            if is_academic:
-                yield f"data: {ThoughtEvent(content='Executing concurrent literature discovery across arXiv (preprints) and OpenAlex (peer-reviewed & citations)...').model_dump_json()}\n\n"
-                yield f"data: {ToolStartEvent(tool='search_academic_papers', args={'query': message, 'sources': ['arXiv', 'OpenAlex']}).model_dump_json()}\n\n"
+            # Check if this is a meta inquiry about AMRA itself (architecture, how it works, sample inputs, durability)
+            is_meta_inquiry = any(
+                q in msg_lower for q in [
+                    "how does", "how it works", "how it fetch", "what tech", "architecture",
+                    "explain", "what are the gap", "sample input", "durability", "challenge this",
+                    "who are you", "what can you do", "help me understand"
+                ]
+            )
 
-                expanded_q = _expand_search_query(message)
-                arxiv_future = asyncio.to_thread(search_academic_papers, query=message, max_results=3)
+            # Check for academic literature intent (only if not a pure meta inquiry)
+            is_academic = not is_meta_inquiry and (
+                any(w in msg_lower for w in ["paper", "arxiv", "openalex", "literature", "algorithm", "research", "recent", "sota", "citation"])
+                or (len(history) <= 1 and len(clean_keywords.split()) >= 1 and not any(w in msg_lower for w in ["hi", "hello", "hey", "test"]))
+            )
+
+            if is_academic:
+                yield f"data: {ThoughtEvent(content=f'Executing literature discovery across arXiv and OpenAlex for: \"{clean_keywords}\"...').model_dump_json()}\n\n"
+                yield f"data: {ToolStartEvent(tool='search_academic_papers', args={'query': clean_keywords, 'sources': ['arXiv', 'OpenAlex']}).model_dump_json()}\n\n"
+
+                arxiv_future = asyncio.to_thread(search_academic_papers, query=clean_keywords, max_results=3)
                 openalex_future = asyncio.to_thread(search_openalex_papers, query=expanded_q, max_results=3)
 
                 results_pair = await asyncio.gather(arxiv_future, openalex_future, return_exceptions=True)
@@ -122,13 +171,16 @@ class AgentOrchestrator:
                 await asyncio.sleep(0.05)
 
             # Check for dataset sourcing intent
-            is_dataset = any(w in msg_lower for w in ["data", "dataset", "kaggle", "huggingface", "hf", "csv", "table", "benchmark"]) or len(found_papers) > 0
-            if is_dataset:
-                yield f"data: {ThoughtEvent(content='Executing concurrent dataset search across Kaggle and Hugging Face Hub (usability >= 0.70)...').model_dump_json()}\n\n"
-                yield f"data: {ToolStartEvent(tool='find_kaggle_datasets', args={'query': message, 'sources': ['Kaggle', 'Hugging Face']}).model_dump_json()}\n\n"
+            is_dataset = not is_meta_inquiry and (
+                any(w in msg_lower for w in ["data", "dataset", "kaggle", "huggingface", "hf", "csv", "table", "benchmark"])
+                or len(found_papers) > 0
+            )
 
-                expanded_q = _expand_search_query(message)
-                kaggle_future = asyncio.to_thread(find_kaggle_datasets, query=message, max_results=2)
+            if is_dataset:
+                yield f"data: {ThoughtEvent(content=f'Searching Kaggle and Hugging Face Hub for: \"{clean_keywords}\"...').model_dump_json()}\n\n"
+                yield f"data: {ToolStartEvent(tool='find_kaggle_datasets', args={'query': clean_keywords, 'sources': ['Kaggle', 'Hugging Face']}).model_dump_json()}\n\n"
+
+                kaggle_future = asyncio.to_thread(find_kaggle_datasets, query=clean_keywords, max_results=2)
                 hf_future = asyncio.to_thread(find_huggingface_datasets, query=expanded_q, max_results=2)
 
                 results_ds = await asyncio.gather(kaggle_future, hf_future, return_exceptions=True)
@@ -140,13 +192,30 @@ class AgentOrchestrator:
 
                 all_datasets = []
                 seen_ids = set()
+                kw_tokens = set(re.findall(r"\w+", clean_keywords.lower()))
+
                 for d in (kaggle_ds + hf_ds):
                     ds_id = d.get("dataset_id", "").lower()
                     if ds_id and ds_id not in seen_ids:
                         seen_ids.add(ds_id)
+                        # Compute relevance score against research keywords
+                        search_corpus = (d.get("title", "") + " " + ds_id + " " + " ".join(d.get("tags", []))).lower()
+                        overlap_score = sum(1 for kw in kw_tokens if kw in search_corpus)
+                        d["_relevance_score"] = overlap_score
                         all_datasets.append(d)
 
-                all_datasets.sort(key=lambda x: ((x.get("download_count") or 0), x.get("usability_score", 0.0)), reverse=True)
+                # Sort by keyword relevance first, then download count & usability
+                all_datasets.sort(
+                    key=lambda x: (
+                        x.get("_relevance_score", 0),
+                        (x.get("download_count") or 0),
+                        x.get("usability_score", 0.0),
+                    ),
+                    reverse=True,
+                )
+                for d in all_datasets:
+                    d.pop("_relevance_score", None)
+
                 found_datasets = all_datasets[:4]
 
                 yield f"data: {ToolResultEvent(tool='find_kaggle_datasets', result=found_datasets).model_dump_json()}\n\n"
