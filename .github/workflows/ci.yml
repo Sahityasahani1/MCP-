@@ -23,6 +23,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r backend/requirements.txt -r mcp_server/requirements.txt pytest
 
+    - name: Run Multi-Source Discovery Benchmark
+      run: |
+        python tests/test_multi_source.py
+
     - name: Run Phase 1 Production Benchmark Audit (BR-01 to BR-06)
       run: |
         python tests/test_phase1_production.py
@@ -30,3 +34,7 @@ jobs:
     - name: Run Phase 2 Backend & HITL Gate Benchmark
       run: |
         python tests/test_phase2_backend.py
+
+    - name: Run Phase 4 Security & DevSecOps Benchmark
+      run: |
+        python tests/test_phase4_security_devops.py
