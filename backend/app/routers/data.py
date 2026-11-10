@@ -1,11 +1,15 @@
-"""Data Management & File Download Router."""
+"""Data Management & File Download Router (Hardened Security)."""
 
+import re
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pathlib import Path
 from ..config import settings
 
 router = APIRouter(prefix="/api/data", tags=["Data Artifacts"])
+
+# Strict security regex: alphanumerics, dashes, underscores, and single dot for extension
+SAFE_FILENAME_REGEX = re.compile(r"^[a-zA-Z0-9_\-]+\.(csv|parquet)$")
 
 
 @router.get("/processed")
@@ -29,16 +33,17 @@ async def list_processed_files():
 
 @router.get("/download/{filename}")
 async def download_file(filename: str):
-    """Safely downloads a cleaned dataset file with path traversal protection."""
-    # Prevent path traversal
-    if "/" in filename or "\\" in filename or ".." in filename:
-        raise HTTPException(status_code=400, detail="Invalid filename format.")
+    """Safely downloads a cleaned dataset file with strict path traversal & extension protection."""
+    # 1. Regex validation against path traversal characters, directory separators, and disallowed extensions
+    if not SAFE_FILENAME_REGEX.match(filename) or ".." in filename or "/" in filename or "\\" in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename format or disallowed extension.")
 
+    # 2. Strict path resolution check
     file_path = (settings.DATA_PROCESSED_DIR / filename).resolve()
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="File not found.")
 
-    # Assert file is within DATA_PROCESSED_DIR
+    # 3. Assert file is strictly inside DATA_PROCESSED_DIR (Defense in Depth)
     if settings.DATA_PROCESSED_DIR.resolve() not in file_path.parents:
         raise HTTPException(status_code=403, detail="Access denied: outside directory boundary.")
 
