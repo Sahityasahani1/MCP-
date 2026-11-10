@@ -76,6 +76,7 @@ Run tests:
 python tests/test_multi_source.py
 python tests/test_phase1_production.py
 python tests/test_phase2_backend.py
+python tests/test_phase4_security_devops.py
 ```
 
 ---
@@ -136,9 +137,11 @@ MCP project/
 Whenever creating or modifying files:
 1. **Analyze:** Check impact on existing endpoints (`/api/chat/stream`, `/api/chat/approve`, `/api/health`).
 2. **Implement:** Maintain modular separation between FastAPI middleware and FastMCP server.
-3. **Verify:** Run both benchmark test suites:
+3. **Verify:** Run all four benchmark test suites:
    ```bash
+   python tests/test_multi_source.py
    python tests/test_phase1_production.py
    python tests/test_phase2_backend.py
+   python tests/test_phase4_security_devops.py
    ```
 4. **Document:** Keep `BRIEF.md`, `product.md`, `ui.md`, `engineering.md`, and `README.md` in sync.

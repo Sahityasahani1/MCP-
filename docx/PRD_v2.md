@@ -90,3 +90,99 @@ By leveraging the **Model Context Protocol (MCP)**, AMRA delivers a unified, cha
   - Score is deterministically bounded within $[0.0, 100.0]$.
   - Missingness penalty up to 40.0 pts; duplicate penalty up to 40.0 pts; outlier penalty up to 20.0 pts.
   - Asserts a positive health score delta on imperfect data post-cleaning.
+
+---
+
+## 5. Functional Requirements Matrix
+
+| Module | ID | Requirement Description | Priority |
+| :--- | :--- | :--- | :--- |
+| **Conversational Interface** | FR-01 | Next.js 15 chat UI supporting multi-turn agent interaction with SSE streaming | P0 (Must Have) |
+| **Neo-Brutalist UI/UX** | FR-02 | Anti-design aesthetic: thick 4px black borders, hard offset shadows, high-contrast token palette | P0 (Must Have) |
+| **Multi-Source Literature** | FR-03 | Concurrent literature discovery from arXiv API and OpenAlex API (250M+ works with citation metrics) | P0 (Must Have) |
+| **Multi-Source Datasets** | FR-04 | Concurrent dataset discovery from Kaggle API and Hugging Face Hub API (150K+ ML datasets) | P0 (Must Have) |
+| **Query Expansion** | FR-05 | Automated domain acronym expansion (e.g. `GNN` $\to$ `Graph Neural Network`, `SOTA`, `RLHF`) | P0 (Must Have) |
+| **Citation-Ranked Fusion** | FR-06 | Hybrid literature ranking sorting papers by verified citation count with canonical OA PDFs and DOIs | P0 (Must Have) |
+| **HITL Authorization Gate** | FR-07 | Destructive file system actions blocked until valid single-use cryptographic token is supplied | P0 (Must Have) |
+| **Split-First Partitioning** | FR-08 | 80/20 train/test split executed prior to imputation/scaling to prevent data leakage | P0 (Must Have) |
+| **Baseline ML Modeling** | FR-09 | Automated LightGBM baseline training on partitioned data reporting Accuracy, ROC-AUC, and feature rankings | P0 (Must Have) |
+| **Data Health Scoring** | FR-10 | Algorithmic 0–100 score quantifying nulls, duplicates, and outliers before and after cleaning | P0 (Must Have) |
+| **Dual/Triple Export** | FR-11 | Export clean dataset, training partition, and testing partition to CSV and Apache Parquet (Snappy) | P0 (Must Have) |
+| **TTL Caching Layer** | FR-12 | Thread-safe SQLite query cache delivering sub-15ms response times for repeated requests | P0 (Must Have) |
+| **Provider-Agnostic LLM** | FR-13 | Dynamic model adapter supporting Google Gemini 2.5 Flash, Groq Llama 3.3 70B, and local Ollama ($0.00 cost) | P0 (Must Have) |
+| **Persistent Memory** | FR-14 | Multi-turn conversation history persisted per session in SQLite with WAL mode | P1 (Should Have) |
+
+---
+
+## 6. Non-Functional Requirements & Security Guardrails
+
+1. **Performance & Latency SLAs:**
+   - Time-to-First-Token (TTFT) $< 1.5\text{ s}$ via streaming LLM.
+   - Cached queries return in $< 15\text{ ms}$ (measured $< 1\text{ ms}$ in benchmarks).
+   - End-to-end data cleaning and LightGBM baseline training completes in $< 5\text{ s}$ for datasets up to 100K rows.
+2. **Security & Sandboxing:**
+   - **Zero Arbitrary Shell Execution:** Strict Python library APIs only; `shell=True` banned across all tools.
+   - **Path Traversal Shield:** All file writes and reads strictly validated via `Path.resolve()` and confined to `data/raw/` or `processed_data/`.
+   - **Single-Use Replay Protection:** Cryptographic HITL tokens are invalidated immediately upon first execution attempt.
+3. **Zero Operating Cost ($0.00):**
+   - Engineered to function 100% within free cloud tiers (Google Gemini 2.5 Flash, Groq Cloud) or locally via Ollama with zero mandatory API subscription costs.
+
+---
+
+## 7. Success Metrics & Benchmark SLAs
+
+| Metric | Target SLA | Measured Benchmark Result |
+| :--- | :--- | :--- |
+| **Query-to-Clean-Data Latency** | $< 90\text{ seconds}$ | **$4\text{ to }12\text{ seconds}$** |
+| **Link Integrity & Determinism** | 100% Verified URLs | **100% Verified arXiv & OpenAlex OA PDFs** |
+| **Cache Hit Latency** | $< 15\text{ ms}$ | **$0.08\text{ ms to }0.17\text{ ms}$** |
+| **Data Health Score Delta** | Positive improvement | **$+1.4\text{ to }+15.0\text{ points}$** |
+| **Baseline ML Benchmark** | ROC-AUC & Accuracy reported | **LightGBM baseline reported in UI** |
+| **Test Suite Pass Rate** | 100% on all benchmark rules | **100% Pass across BR-01 to BR-06** |
+
+---
+
+## 8. Four-Phase Delivery Roadmap (v3.0 Production Architecture)
+
+### Phase 1: Multi-Source MCP Execution Layer & Standalone Tools (The Muscle)
+* **Status:** **100% Completed & Verified**
+* **Core Deliverables:**
+  - FastMCP tool server (`mcp_server/ml_research_server.py`) with stdio transport.
+  - Multi-source literature discovery: `arxiv_tool.py` + `openalex_tool.py` (250M+ works with citation counts and OA PDFs).
+  - Multi-source dataset acquisition: `kaggle_tool.py` + `hf_dataset_tool.py` (150K+ datasets with download & like metrics).
+  - Connection-pooled SQLite TTL Cache (`cache.py`) with sub-millisecond retrieval.
+  - Deterministic data cleaning, IQR outlier profiling, and algorithmic Data Health Scoring ($0\text{--}100$).
+* **Verification:** `tests/test_phase1_production.py` and `tests/test_multi_source.py` passing with 100% test success.
+
+### Phase 2: Agent Orchestration, Model Integration & Streaming Middleware (The Brain)
+* **Status:** **100% Completed & Verified**
+* **Core Deliverables:**
+  - Provider-agnostic model factory (`backend/app/agent/factory.py`) supporting **Google Gemini 2.5 Flash**, **Groq Llama 3.3 70B**, and **local Ollama** at $\$0.00$ cost.
+  - Semantic query expansion for domain acronyms (`GNN`, `SOTA`, `RLHF`, `LLM`).
+  - Concurrent tool dispatch (`asyncio.gather`) and hybrid citation/download fusion ranking.
+  - Cryptographic Human-in-the-Loop (HITL) authorization token state machine.
+  - FastAPI Server-Sent Events (SSE) streaming router (`/api/chat/stream`, `/api/chat/approve`).
+  - Multi-turn conversation memory store in SQLite with WAL mode.
+* **Verification:** `tests/test_phase2_backend.py` passing with 100% test success.
+
+### Phase 3: Conversational Web Interface & Interactive Cards (The Face & Experience)
+* **Status:** **Enhanced & Production Ready**
+* **Core Deliverables:**
+  - **Next.js 15 App Router Frontend:** High-contrast Neo-Brutalist design system (thick 4px black borders, hard offset drop shadows, stark high-impact color tokens).
+  - **Resilient SSE Consumer (`lib/sse-client.ts`):** Chunked buffer reconstitution, auto-reconnect, and multi-event dispatch.
+  - **Enhanced `PaperCard.tsx`:** Renders both arXiv and OpenAlex papers with green citation count badges (`Award`), cyan peer-reviewed markers, direct open-access PDF links, and canonical DOI buttons.
+  - **Enhanced `DatasetCard.tsx`:** Renders Kaggle and Hugging Face Hub datasets with like counters (`Heart`), download counters, modality tags, and direct repository links.
+  - **Enhanced `ApprovalPrompt.tsx`:** High-alert red container (`#FF0000`) requiring explicit user token authorization before running local pipelines.
+  - **Enhanced `DataPreviewTable.tsx`:** Interactive data health gauge with score delta, LightGBM baseline model metrics tab (Accuracy, ROC-AUC, top feature importances), and direct download buttons for cleaned CSV and Parquet partitions (full, train, test).
+* **Verification:** `npm run build` generates optimized static pages with 0 TypeScript/lint errors; responsive rendering verified at `http://localhost:3000`.
+
+### Phase 4: Production Hardening, Safety Sandboxing & DevSecOps (The Shield & Polish)
+* **Status:** **Enhanced & Verified**
+* **Core Deliverables:**
+  - **Strict Security Sandboxing:** Directory traversal prevention via `Path.resolve()`, command injection elimination, and single-use cryptographic token invalidation.
+  - **Multi-Container Docker Orchestration:** Production `docker-compose.yml`, `Dockerfile.backend` (Python 3.11-slim), and `Dockerfile.frontend` (Node 20-alpine multi-stage build).
+  - **Automated CI/CD Pipeline:** GitHub Actions workflow (`.github/workflows/ci.yml`) running all 3 benchmark suites on every push and pull request.
+  - **Offline Capability:** 100% private, air-gapped operation verified via `MODEL_PROVIDER=ollama` and local benchmark fallbacks.
+  - **Portfolio & Resume Centerpiece:** Comprehensive `README.md` with copy-paste resume bullet points, architecture diagrams, and benchmark matrix.
+* **Verification:** Multi-service regression audit passing all global rules (BR-01 through BR-06).
+

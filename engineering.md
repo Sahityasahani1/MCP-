@@ -160,12 +160,16 @@ Where:
 1. **Path Traversal Mitigation (BR-05):**
    - File paths are normalized and resolved with `Path.resolve()`.
    - The resolved path is checked against permissible directories (`DATA_RAW_DIR` and `DATA_PROCESSED_DIR`).
-   - Any attempt to escape via `../../` throws a `ValueError` and halts execution.
+   - Strict regex matching (`^[a-zA-Z0-9_\-]+\.(csv|parquet)$`) is enforced on `/api/data/download/{filename}`, blocking directory separators, parent traversal (`..`), URL encoding (`%2e%2e%2f`), and disallowed file extensions (`.py`, `.env`, `.sh`, `.exe`).
+   - Any attempt to escape via `../../` throws a `ValueError` or HTTP 400/404.
 2. **Command Injection Mitigation:**
    - Raw shell executions (`shell=True`) are banned.
    - All external tool calls use dedicated Python APIs or parameter-split executions.
-3. **HITL Cryptographic Authorization:**
-   - Tokens are 32-character hex UUIDs.
+3. **Execution Watchdog & Killswitch:**
+   - Subprocess and data cleaning executions are wrapped in `asyncio.wait_for(..., timeout=60.0)`.
+   - Malformed data or hanging scripts are automatically killed at 60 seconds, preventing thread pool exhaustion and emitting an `ErrorEvent`.
+4. **HITL Cryptographic Authorization:**
+   - Tokens are 32-character hex UUIDs (`hitl_tok_...`).
    - Tokens expire after single use or after a 10-minute timeout.
    - Unauthorized requests to `/api/chat/approve` are rejected with HTTP 403.
 
@@ -173,7 +177,7 @@ Where:
 
 ## 6. Comprehensive Testing & Production Benchmark Plan
 
-AMRA enforces **6 Global Benchmark Rules (BR-01 through BR-06)** verified by automated test suites.
+AMRA enforces **6 Global Benchmark Rules (BR-01 through BR-06)** verified by 4 automated test suites.
 
 ### Benchmark Verification Matrix
 
@@ -181,18 +185,24 @@ AMRA enforces **6 Global Benchmark Rules (BR-01 through BR-06)** verified by aut
 | :--- | :--- | :--- | :--- |
 | **BR-01** | **Schema Contracts & Typing** | 100% Pydantic v2 validation | `tests/test_phase1_production.py::test_br01_schema_contract` |
 | **BR-02** | **Edge Resilience & Fault Recovery** | Zero unhandled exceptions on dirty data | `tests/test_phase1_production.py::test_br02_edge_resilience` |
-| **BR-03** | **Zero Link Hallucination** | 100% verified arXiv & Kaggle URLs | `tests/test_phase1_production.py::test_br03_zero_hallucination` |
+| **BR-03** | **Zero Link Hallucination** | 100% verified arXiv & OpenAlex URLs | `tests/test_phase1_production.py::test_br03_zero_hallucination` |
 | **BR-04** | **Latency SLA** | Cache hit $< 15\text{ ms}$; Cleaning $< 500\text{ ms}$ | `tests/test_phase1_production.py::test_br04_latency_sla` |
-| **BR-05** | **Security & Path Isolation** | 0 command injections; 0 path traversals | `tests/test_phase1_production.py::test_br05_security_isolation` |
+| **BR-05** | **Security & Path Isolation** | 0 command injections; 0 path traversals | `tests/test_phase4_security_devops.py::test_advanced_path_traversal_fuzzing` |
 | **BR-06** | **Data Health Scoring Math** | Deterministic 0.0 to 100.0 score | `tests/test_phase1_production.py::test_br06_data_health_math` |
 
-### Running the Benchmark Suites:
+### Running the Complete Benchmark Suite:
 ```powershell
-# Phase 1: MCP Server, Cleaning Engine, Caching & Security Suite
+# 1. Multi-Source Literature (arXiv + OpenAlex) & Datasets (Kaggle + HF)
+python tests/test_multi_source.py
+
+# 2. Phase 1: MCP Server, Cleaning Engine, Caching & Security Suite
 python tests/test_phase1_production.py
 
-# Phase 2: FastAPI Middleware, SSE Streaming & HITL Router Suite
+# 3. Phase 2: FastAPI Middleware, SSE Streaming & HITL Router Suite
 python tests/test_phase2_backend.py
+
+# 4. Phase 4: DevSecOps, Path Fuzzing, Offline Mode & Watchdog Suite
+python tests/test_phase4_security_devops.py
 ```
 
 ---

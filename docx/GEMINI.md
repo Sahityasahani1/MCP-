@@ -90,6 +90,9 @@ python tests/test_phase1_production.py
 
 # Run FastAPI Middleware & SSE Router Benchmark
 python tests/test_phase2_backend.py
+
+# Run DevSecOps, Path Traversal & HITL Security Benchmark
+python tests/test_phase4_security_devops.py
 ```
 
 ### Benchmark Metrics:

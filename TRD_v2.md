@@ -141,3 +141,55 @@ sequenceDiagram
    - Single-use approval tokens generated via `secrets.token_hex(8)`.
    - Stored in volatile server memory `PENDING_APPROVALS: Dict[str, Dict[str, Any]]`.
    - Tokens are popped immediately upon validation; second usage attempts raise HTTP 400.
+
+---
+
+## 6. Neo-Brutalist UI/UX Technical Specifications (Phase 3)
+
+The presentation tier adheres to a strict Neo-Brutalist architecture implemented in Next.js 15:
+
+1. **Design Tokens & Palette:**
+   - Literature Card: `--brut-yellow` (`#FFFF00`) with 4px black border and `6px 6px 0 #000000` hard shadow.
+   - Dataset Card: `--brut-green` (`#00FF00`) with 4px black border and `6px 6px 0 #000000` hard shadow.
+   - HITL Gate: `--brut-red` (`#FF0000`) with 4px black border and `8px 8px 0 #000000` hard shadow.
+   - Peer Reviewed Badge: `--brut-cyan` (`#00FFFF`).
+   - Benchmark Fallback Badge: `--brut-magenta` (`#FF00FF`).
+   - Primary Buttons: `--brut-blue` (`#0000FF`) with white text and active translation (`translate(3px, 3px)`).
+2. **Stream Consumer (`lib/sse-client.ts`):**
+   - Implements chunked line-buffered decoding for `data: {...}` payloads.
+   - Dispatches callbacks for `onThought`, `onToolStart`, `onToolResult`, `onHITLRequired`, `onTextDelta`, `onCostAudit`, `onComplete`, and `onError`.
+3. **Interactive Components:**
+   - `PaperCard.tsx`: arXiv + OpenAlex with citations count badge, canonical PDF link, and DOI button.
+   - `DatasetCard.tsx`: Kaggle + Hugging Face with download metrics, likes counter, and modality tags.
+   - `ApprovalPrompt.tsx`: Interactive confirmation gating local script execution.
+   - `DataPreviewTable.tsx`: Tabular preview with health gauge, LightGBM baseline metrics tab, and CSV + Parquet download actions.
+
+---
+
+## 7. DevSecOps, Containerization & CI/CD Strategy (Phase 4)
+
+1. **Multi-Service Docker Architecture:**
+   - `Dockerfile.backend`: Python 3.11-slim container exposing FastAPI ASGI on port 8000.
+   - `Dockerfile.frontend`: Node.js 20-alpine multi-stage build running Next.js on port 3000.
+   - `docker-compose.yml`: Binds backend and frontend with localized volume mounts (`./data:/app/data`, `./processed_data:/app/processed_data`).
+2. **Automated CI Regression Pipeline (`.github/workflows/ci.yml`):**
+   - Enforces automated quality gates on every push/PR:
+     ```powershell
+     python tests/test_multi_source.py
+     python tests/test_phase1_production.py
+     python tests/test_phase2_backend.py
+     ```
+3. **Offline & Air-Gapped Mode:**
+   - Setting `MODEL_PROVIDER=ollama` enables zero-internet local operation using Ollama (`qwen2.5:14b` or `llama3.1:8b`) with pre-cached datasets and benchmark fallbacks.
+
+---
+
+## 8. Four-Phase Technical Implementation Plan & Benchmark Matrix
+
+| Phase | Milestone & Focus | Key Deliverables | Benchmark Exit Gates |
+| :--- | :--- | :--- | :--- |
+| **Phase 1** | **MCP Execution Layer & Standalone Tools** | `ml_research_server.py`, `arxiv_tool.py`, `openalex_tool.py`, `kaggle_tool.py`, `hf_dataset_tool.py`, `clean_data.py`, `cache.py` | • BR-01 Schema Contracts (100% Pydantic)<br>• BR-03 Zero Link Hallucinations<br>• BR-04 Latency SLA ($< 15\text{ ms}$ cache hit)<br>• BR-06 Data Health Score bounds |
+| **Phase 2** | **Agent Middleware & Streaming Engine** | `backend/app/agent/factory.py`, `orchestrator.py`, `memory.py`, `routers/chat.py`, `routers/data.py` | • BR-02 Edge Resilience & Replay Protection<br>• BR-05 Path Isolation ($0$ escapes)<br>• SSE 10-event streaming lifecycle<br>• Zero-cost model audit |
+| **Phase 3** | **Conversational UI & Neo-Brutalist Cards** | `frontend/components/PaperCard.tsx`, `DatasetCard.tsx`, `ApprovalPrompt.tsx`, `DataPreviewTable.tsx`, `ChatInterface.tsx`, `sse-client.ts` | • Next.js 15 production build passes (`npm run build`)<br>• 0 TypeScript / 0 Lint errors<br>• Neo-Brutalism tokens ($4\text{px}$ borders, shadows)<br>• Citations, likes, DOIs, LightGBM metrics rendered |
+| **Phase 4** | **DevSecOps, Sandboxing & Portfolio Polish** | `docker-compose.yml`, `Dockerfile.backend`, `Dockerfile.frontend`, `.github/workflows/ci.yml`, `README.md` | • Multi-container build passes<br>• CI regression pipeline passing (100%)<br>• Offline Ollama mode verified<br>• Copy-paste resume bullet points documented |
+
