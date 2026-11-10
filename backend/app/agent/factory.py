@@ -43,43 +43,55 @@ class GeminiAdapter(BaseLLMAdapter):
         # Formulate prompt from multi-turn messages
         last_user_msg = messages[-1]["content"] if messages else ""
 
-        # Direct Google AI REST endpoint
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={self.api_key}"
+        # Direct Google AI REST endpoint with resilient model fallbacks
+        models_to_try = [self.model_name]
+        for fallback in ["gemini-3.8-flash", "gemini-3.5-flash-lite"]:
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
+
         payload = {
             "contents": [{"parts": [{"text": last_user_msg}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024},
         }
 
+        last_error = None
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, json=payload)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Gemini API returned error {resp.status_code}: {resp.text[:200]}")
-            data = resp.json()
+            for model in models_to_try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+                try:
+                    resp = await client.post(url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        text = ""
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            text = "".join(p.get("text", "") for p in parts)
 
-            candidates = data.get("candidates", [])
-            text = ""
-            if candidates:
-                parts = candidates[0].get("content", {}).get("parts", [])
-                text = "".join(p.get("text", "") for p in parts)
+                        usage = data.get("usageMetadata", {})
+                        prompt_tokens = usage.get("promptTokenCount", len(last_user_msg) // 4)
+                        completion_tokens = usage.get("candidatesTokenCount", len(text) // 4)
 
-            usage = data.get("usageMetadata", {})
-            prompt_tokens = usage.get("promptTokenCount", len(last_user_msg) // 4)
-            completion_tokens = usage.get("candidatesTokenCount", len(text) // 4)
+                        return {
+                            "text": text,
+                            "provider": "gemini",
+                            "model": model,
+                            "prompt_tokens": prompt_tokens,
+                            "completion_tokens": completion_tokens,
+                            "cost_usd": 0.00,  # Free tier
+                        }
+                    else:
+                        last_error = f"Gemini API ({model}) returned {resp.status_code}: {resp.text[:200]}"
+                except Exception as exc:
+                    last_error = f"Connection error for {model}: {str(exc)}"
 
-            return {
-                "text": text,
-                "provider": "gemini",
-                "model": self.model_name,
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": completion_tokens,
-                "cost_usd": 0.00,  # Free tier
-            }
+        raise RuntimeError(last_error or "All Gemini model endpoints failed.")
 
 
 class GroqAdapter(BaseLLMAdapter):
-    """Groq Cloud adapter utilizing OpenAI-compatible high-speed API."""
+    """Groq Cloud adapter utilizing OpenAI-compatible high-speed API with model fallback."""
 
-    def __init__(self, api_key: str, model_name: str = "llama-3.3-70b-versatile"):
+    def __init__(self, api_key: str, model_name: str = "openai/gpt-oss-120b"):
         super().__init__(model_name)
         self.api_key = api_key
         self.base_url = "https://api.groq.com/openai/v1/chat/completions"
@@ -93,30 +105,42 @@ class GroqAdapter(BaseLLMAdapter):
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
-            "model": self.model_name,
-            "messages": messages,
-            "temperature": 0.2,
-        }
+        
+        models_to_try = [self.model_name]
+        for fallback in ["openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b", "llama-3.3-70b-versatile"]:
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
 
+        last_error = None
         async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(self.base_url, headers=headers, json=payload)
-            if resp.status_code != 200:
-                raise RuntimeError(f"Groq API error {resp.status_code}: {resp.text[:200]}")
-            data = resp.json()
+            for model in models_to_try:
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                }
+                try:
+                    resp = await client.post(self.base_url, headers=headers, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        choice = data["choices"][0]
+                        text = choice["message"]["content"]
+                        usage = data.get("usage", {})
 
-            choice = data["choices"][0]
-            text = choice["message"]["content"]
-            usage = data.get("usage", {})
+                        return {
+                            "text": text,
+                            "provider": "groq",
+                            "model": model,
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "cost_usd": 0.00,  # Free tier
+                        }
+                    else:
+                        last_error = f"Groq API error for model {model} ({resp.status_code}): {resp.text[:200]}"
+                except Exception as exc:
+                    last_error = f"Connection error for Groq model {model}: {str(exc)}"
 
-            return {
-                "text": text,
-                "provider": "groq",
-                "model": self.model_name,
-                "prompt_tokens": usage.get("prompt_tokens", 0),
-                "completion_tokens": usage.get("completion_tokens", 0),
-                "cost_usd": 0.00,  # Free tier
-            }
+        raise RuntimeError(last_error or "All Groq model endpoints failed.")
 
 
 class OllamaAdapter(BaseLLMAdapter):

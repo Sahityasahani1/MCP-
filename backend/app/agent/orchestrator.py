@@ -293,15 +293,22 @@ class AgentOrchestrator:
             yield f"data: {ThoughtEvent(content=f'User authorization verified. Executing local data ingestion & profiling for {dataset_id}...').model_dump_json()}\n\n"
             yield f"data: {ToolStartEvent(tool='trigger_data_pipeline', args={'dataset_id': dataset_id, **recipe}).model_dump_json()}\n\n"
 
-            # Run cleaning pipeline in threadpool
-            raw_result = await asyncio.to_thread(
-                trigger_data_pipeline,
-                dataset_id=dataset_id,
-                handle_missing=recipe.get("handle_missing", "median_impute"),
-                drop_duplicates=recipe.get("drop_duplicates", True),
-                normalize_headers=recipe.get("normalize_headers", True),
-                cap_outliers=recipe.get("cap_outliers", True),
-            )
+            # Run cleaning pipeline in threadpool with 60s watchdog timeout
+            try:
+                raw_result = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        trigger_data_pipeline,
+                        dataset_id=dataset_id,
+                        handle_missing=recipe.get("handle_missing", "median_impute"),
+                        drop_duplicates=recipe.get("drop_duplicates", True),
+                        normalize_headers=recipe.get("normalize_headers", True),
+                        cap_outliers=recipe.get("cap_outliers", True),
+                    ),
+                    timeout=60.0,
+                )
+            except asyncio.TimeoutError:
+                yield f"data: {ErrorEvent(error_message=f'Execution watchdog triggered: data pipeline for {dataset_id} exceeded 60s timeout limit.').model_dump_json()}\n\n"
+                return
             parsed_result = json.loads(raw_result)
             yield f"data: {ToolResultEvent(tool='trigger_data_pipeline', result=parsed_result).model_dump_json()}\n\n"
 
