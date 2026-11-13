@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "description": "Cloudflare Pages Edge Routing Manifest for AMRA Next.js",
+  "include": [
+    "/*"
+  ],
+  "exclude": [
+    "/_next/static/*",
+    "/favicon.ico",
+    "/*.png",
+    "/*.svg",
+    "/robots.txt"
+  ]
+}

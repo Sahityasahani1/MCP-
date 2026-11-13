@@ -3,6 +3,25 @@
  * Parses line-delimited Server-Sent Events with error resilience.
  */
 
+export function getApiBaseUrl(): string {
+  return process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+}
+
+export function getAuthHeaders(): Record<string, string> {
+  if (typeof window !== "undefined") {
+    const userJwt = localStorage.getItem("amra_auth_token");
+    if (userJwt) {
+      return {
+        "Authorization": `Bearer ${userJwt}`,
+      };
+    }
+  }
+  const token = process.env.NEXT_PUBLIC_API_KEY || "amra-secret-key-2026";
+  return {
+    "Authorization": `Bearer ${token}`,
+  };
+}
+
 export interface SSECallbacks {
   onThought?: (content: string) => void;
   onToolStart?: (tool: string, args: Record<string, any>) => void;
@@ -25,6 +44,7 @@ export async function consumeSSEStream(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...getAuthHeaders(),
       },
       body: JSON.stringify(payload),
       signal,

@@ -1,7 +1,7 @@
 "use client";
 
-import React from "react";
-import { BookOpen, FileText, ExternalLink, Calendar, Users, Award, BookmarkCheck } from "lucide-react";
+import React, { useState } from "react";
+import { BookOpen, FileText, ExternalLink, Calendar, Users, Award, BookmarkCheck, Copy, Check } from "lucide-react";
 
 interface PaperProps {
   paper: {
@@ -18,8 +18,32 @@ interface PaperProps {
 }
 
 export const PaperCard: React.FC<PaperProps> = ({ paper }) => {
+  const [copiedCite, setCopiedCite] = useState(false);
   const sourceName = (paper.source || "arXiv").toUpperCase();
   const isArxiv = sourceName === "ARXIV";
+
+  const isSafeUrl = (url?: string): boolean => {
+    if (!url) return false;
+    const trimmed = url.trim().toLowerCase();
+    return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+  };
+
+  const handleCopyCitation = () => {
+    const key = paper.id.replace(/[^a-zA-Z0-9]/g, "_");
+    const authors = paper.authors.join(" and ");
+    const year = paper.published ? paper.published.substring(0, 4) : new Date().getFullYear();
+    const doiLine = paper.doi ? `  doi       = {${paper.doi}},\n` : "";
+    const bib = `@article{${key},
+  title     = {${paper.title}},
+  author    = {${authors}},
+  year      = {${year}},
+  journal   = {${sourceName} Repository},
+${doiLine}  url       = {${paper.pdf_url}}
+}`;
+    navigator.clipboard.writeText(bib);
+    setCopiedCite(true);
+    setTimeout(() => setCopiedCite(false), 2000);
+  };
 
   return (
     <div className="bg-[#FFFF00] text-black border-4 border-black p-4 my-2 shadow-[6px_6px_0_#000000]">
@@ -47,7 +71,26 @@ export const PaperCard: React.FC<PaperProps> = ({ paper }) => {
         </div>
 
         <div className="flex items-center gap-2">
-          {paper.doi && (
+          <button
+            type="button"
+            onClick={handleCopyCitation}
+            aria-label={`Copy BibTeX citation for ${paper.title}`}
+            className="bg-black text-white hover:bg-white hover:text-black text-xs font-mono font-black uppercase px-2.5 py-1 border-2 border-black shadow-[2px_2px_0_#000000] inline-flex items-center gap-1 transition-none cursor-pointer"
+          >
+            {copiedCite ? (
+              <>
+                <Check className="w-3 h-3 text-[#00FF00]" aria-hidden="true" />
+                <span className="text-[#00FF00]">COPIED!</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3 text-yellow-300" aria-hidden="true" />
+                <span>CITE</span>
+              </>
+            )}
+          </button>
+
+          {paper.doi && isSafeUrl(paper.doi.startsWith("http") ? paper.doi : `https://doi.org/${paper.doi}`) && (
             <a
               href={paper.doi.startsWith("http") ? paper.doi : `https://doi.org/${paper.doi}`}
               target="_blank"
@@ -60,17 +103,19 @@ export const PaperCard: React.FC<PaperProps> = ({ paper }) => {
             </a>
           )}
 
-          <a
-            href={paper.pdf_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            aria-label={`Open verified PDF for ${paper.title}`}
-            className="button button--blue text-xs font-black uppercase px-3 py-1 border-2 border-black shadow-[3px_3px_0_#000000] inline-flex items-center gap-1.5 cursor-pointer"
-          >
-            <FileText className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>VERIFIED PDF</span>
-            <ExternalLink className="w-3 h-3 ml-0.5" aria-hidden="true" />
-          </a>
+          {isSafeUrl(paper.pdf_url) && (
+            <a
+              href={paper.pdf_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label={`Open verified PDF for ${paper.title}`}
+              className="button button--blue text-xs font-black uppercase px-3 py-1 border-2 border-black shadow-[3px_3px_0_#000000] inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <FileText className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>PDF</span>
+              <ExternalLink className="w-3 h-3 ml-0.5" aria-hidden="true" />
+            </a>
+          )}
         </div>
       </div>
 
@@ -91,7 +136,7 @@ export const PaperCard: React.FC<PaperProps> = ({ paper }) => {
         {paper.published && (
           <div className="flex items-center gap-1.5">
             <Calendar className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>PUB: {paper.published}</span>
+            <span>{paper.published}</span>
           </div>
         )}
       </div>

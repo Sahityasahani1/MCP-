@@ -73,6 +73,8 @@ Before concluding any task or committing changes, ensure that all 6 global bench
 
 Run tests:
 ```powershell
+python tests/test_cloudflare_caching.py
+python tests/test_auth_database.py
 python tests/test_multi_source.py
 python tests/test_phase1_production.py
 python tests/test_phase2_backend.py
@@ -88,25 +90,29 @@ MCP project/
 ├── backend/                  # FastAPI Middleware
 │   ├── app/
 │   │   ├── agent/            # Agent orchestrator, prompt definitions, SQLite session memory
-│   │   ├── routers/          # /api/chat (SSE streaming & approval), /api/data (raw/clean inspection)
+│   │   ├── db/               # SQLite WAL user, session & message store (amra_users.db)
+│   │   ├── routers/          # /api/chat, /api/data, /api/auth, /api/cache
 │   │   ├── schemas/          # Pydantic v2 models (events, requests, responses)
+│   │   ├── auth.py           # NIST PBKDF2 password hashing & PyJWT token management
+│   │   ├── cache.py          # High-speed in-memory LRU/TTL edge cache & Cloudflare headers
 │   │   ├── config.py         # App settings & env loading
 │   │   └── main.py           # FastAPI app entrypoint & CORS setup
 │   └── requirements.txt
 ├── mcp_server/               # FastMCP Execution Layer
 │   ├── pipeline/             # Staff-level Pandas data cleaner & health scoring engine
-│   ├── tools/                # arXiv discovery tool, Kaggle search tool, SQLite TTL cache
+│   ├── tools/                # arXiv discovery, OpenAlex, Kaggle, HF, SQLite TTL cache
 │   ├── ml_research_server.py # FastMCP server exposing tools to agents
 │   └── requirements.txt
-├── frontend/                 # Next.js 15 User Interface
-│   ├── app/                  # App Router (page.tsx, layout.tsx, globals.css)
-│   ├── components/           # ChatInterface, PaperCard, DatasetCard, ApprovalPrompt, DataPreviewTable
+├── frontend/                 # Next.js 15 User Interface (Neo-Brutalist)
+│   ├── app/                  # App Router (page.tsx, login/page.tsx, cloudflare/page.tsx)
+│   ├── components/           # ChatInterface, PaperCard, DatasetCard, ApprovalPrompt, Preview
 │   ├── lib/                  # sse-client.ts (EventSource & fetch stream parser)
+│   ├── public/               # Cloudflare Pages _headers & _routes.json
 │   └── package.json
 ├── data/                     # Local storage (gitignored except .gitkeep)
 │   ├── raw/                  # Downloaded raw datasets
 │   ├── cache/                # SQLite TTL cache for search queries
-│   └── sessions/             # SQLite session memory
+│   └── sessions/             # Multi-tenant SQLite database (amra_users.db)
 ├── processed_data/           # Output directory for cleaned CSVs and Parquet files
 ├── tests/                    # Production benchmark suites
 ├── docx/                     # Documentation hub (PRD, TRD, architecture, PDFs)

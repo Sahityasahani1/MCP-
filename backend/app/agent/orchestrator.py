@@ -4,6 +4,7 @@ import json
 import secrets
 import asyncio
 import re
+import time
 from typing import AsyncGenerator, Dict, Any, Optional
 from pathlib import Path
 import sys
@@ -103,6 +104,7 @@ class AgentOrchestrator:
         message: str,
         session_id: str,
         provider_override: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """Executes full agent turn and yields formatted SSE data strings."""
         try:
@@ -111,8 +113,8 @@ class AgentOrchestrator:
             await asyncio.sleep(0.05)
 
             # 2. Add User Message to Memory
-            session_memory.add_message(session_id=session_id, role="user", content=message)
-            history = session_memory.get_history(session_id=session_id, limit=6)
+            session_memory.add_message(session_id=session_id, role="user", content=message, user_id=user_id)
+            history = session_memory.get_history(session_id=session_id, user_id=user_id, limit=6)
 
             # Convert history to format needed by adapters
             formatted_messages = [{"role": m["role"], "content": m["content"]} for m in history]
@@ -234,10 +236,14 @@ class AgentOrchestrator:
                     "train_baseline": True,
                     "export_formats": ["CSV", "Parquet", "Train Parquet", "Test Parquet"],
                 }
+                now = time.time()
                 PENDING_APPROVALS[token] = {
                     "session_id": session_id,
+                    "user_id": user_id,
                     "dataset_id": target_ds,
                     "recipe": recipe,
+                    "created_at": now,
+                    "expires_at": now + 600.0,  # 10-Minute TTL
                 }
 
                 yield f"data: {HITLRequiredEvent(dataset_id=target_ds, cleaning_recipe=recipe, approval_token=token).model_dump_json()}\n\n"
@@ -266,7 +272,19 @@ class AgentOrchestrator:
                 session_id=session_id,
                 role="assistant",
                 content=assistant_text,
-                metadata={"papers_count": len(found_papers), "datasets_count": len(found_datasets)},
+                user_id=user_id,
+                metadata={
+                    "papers_count": len(found_papers),
+                    "datasets_count": len(found_datasets),
+                    "papers": found_papers,
+                    "datasets": found_datasets,
+                    "costAudit": {
+                        "provider": llm_result["provider"],
+                        "model": llm_result["model"],
+                        "prompt_tokens": llm_result["prompt_tokens"],
+                        "completion_tokens": llm_result["completion_tokens"],
+                    },
+                },
             )
 
             # 8. Complete Event
@@ -279,16 +297,50 @@ class AgentOrchestrator:
     async def stream_approval_execution(
         approval_token: str,
         session_id: str,
+        action: str = "approve",
+        custom_recipe: Optional[Dict[str, Any]] = None,
     ) -> AsyncGenerator[str, None]:
-        """Executes the approved data cleaning pipeline upon user authorization."""
+        """Executes or cancels the approved data cleaning pipeline upon user authorization."""
         try:
             if approval_token not in PENDING_APPROVALS:
                 yield f"data: {ErrorEvent(error_message='Invalid or expired approval token.').model_dump_json()}\n\n"
                 return
 
-            task_info = PENDING_APPROVALS.pop(approval_token)
+            task_info = PENDING_APPROVALS.get(approval_token)
+
+            # 1. Validate Expiration (10-minute TTL)
+            now = time.time()
+            if task_info.get("expires_at") and now > task_info["expires_at"]:
+                PENDING_APPROVALS.pop(approval_token, None)
+                yield f"data: {ErrorEvent(error_message='Approval token expired: the 10-minute authorization window has lapsed.').model_dump_json()}\n\n"
+                return
+
+            # 2. Validate Session Binding
+            if task_info.get("session_id") and task_info["session_id"] != session_id:
+                yield f"data: {ErrorEvent(error_message='Session mismatch: approval token does not belong to this session.').model_dump_json()}\n\n"
+                return
+
+            # Pop token to prevent replay attacks
+            PENDING_APPROVALS.pop(approval_token, None)
+
+            # 3. Explicitly handle user rejection
+            if action == "reject":
+                yield f"data: {ThoughtEvent(content='User rejected pipeline execution. Local disk storage remains unmodified.').model_dump_json()}\n\n"
+                summary_msg = f" Pipeline execution for dataset `{task_info['dataset_id']}` was cancelled by the user. No files were written to disk."
+                yield f"data: {TextDeltaEvent(content=summary_msg).model_dump_json()}\n\n"
+                session_memory.add_message(
+                    session_id=session_id,
+                    role="assistant",
+                    content=summary_msg,
+                    user_id=task_info.get("user_id"),
+                )
+                yield f"data: {CompleteEvent(session_id=session_id).model_dump_json()}\n\n"
+                return
+
             dataset_id = task_info["dataset_id"]
             recipe = task_info["recipe"]
+            if custom_recipe:
+                recipe = {**recipe, **custom_recipe}
 
             yield f"data: {ThoughtEvent(content=f'User authorization verified. Executing local data ingestion & profiling for {dataset_id}...').model_dump_json()}\n\n"
             yield f"data: {ToolStartEvent(tool='trigger_data_pipeline', args={'dataset_id': dataset_id, **recipe}).model_dump_json()}\n\n"
@@ -303,6 +355,8 @@ class AgentOrchestrator:
                         drop_duplicates=recipe.get("drop_duplicates", True),
                         normalize_headers=recipe.get("normalize_headers", True),
                         cap_outliers=recipe.get("cap_outliers", True),
+                        test_size=recipe.get("test_size", 0.2),
+                        target_column=recipe.get("target_column"),
                     ),
                     timeout=60.0,
                 )
@@ -334,7 +388,13 @@ class AgentOrchestrator:
             )
             yield f"data: {TextDeltaEvent(content=summary_msg).model_dump_json()}\n\n"
 
-            session_memory.add_message(session_id=session_id, role="assistant", content=summary_msg)
+            session_memory.add_message(
+                session_id=session_id,
+                role="assistant",
+                content=summary_msg,
+                user_id=task_info.get("user_id"),
+                metadata={"pipelineResult": parsed_result},
+            )
             yield f"data: {CompleteEvent(session_id=session_id).model_dump_json()}\n\n"
 
         except Exception as e:

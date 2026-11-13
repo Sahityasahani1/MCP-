@@ -114,17 +114,32 @@ def find_kaggle_datasets(
     """
 ```
 
-### 3.3 `trigger_data_pipeline` (HITL Gated)
+### 3.3 `trigger_data_pipeline` (HITL Gated with Custom Recipe)
 ```python
 def trigger_data_pipeline(
     dataset_id: str,
-    raw_csv_path: Optional[str] = None,
-    approval_token: Optional[str] = None,
+    handle_missing: Literal["drop", "median_impute", "mean_impute", "mode_impute"] = "median_impute",
+    drop_duplicates: bool = True,
+    normalize_headers: bool = True,
+    cap_outliers: bool = True,
+    test_size: float = 0.2,
+    target_column: Optional[str] = None,
 ) -> str:
     """Executes the data cleaning and profiling pipeline after validating the HITL token.
+    Supports researcher-calibrated train/test split partitions, custom imputation,
+    outlier capping toggles, and target feature overrides.
     Generates cleaned CSV, Apache Parquet, and Data Health Scores.
     """
 ```
+
+### 3.4 Data Artifacts & Ingestion Endpoints (`backend/app/routers/data.py`)
+- `POST /api/data/upload`: Accepts multipart CSV uploads up to 250 MB ceiling, performs regex filename sanitization, enforces directory sandboxing inside `data/raw/`, and returns instant Pandas schema profiling preview.
+- `GET /api/data/processed`: Discovers all generated CSV and Parquet partitions with byte size and modification timestamps.
+- `GET /api/data/download/{filename}`: Hardened file delivery endpoint with strict path resolution checks and regex defense against directory traversal.
+
+### 3.5 Session Management Endpoints (`backend/app/routers/chat.py`)
+- `GET /api/chat/sessions`: Queries SQLite WAL-mode memory database (`SELECT session_id, message_count, last_updated, title ...`), delivering sub-millisecond thread listings for the frontend drawer.
+- `POST /api/chat/approve`: Authorizes dataset cleaning using single-use cryptographic approval tokens with optional `custom_recipe` payload overrides.
 
 ---
 
@@ -157,21 +172,36 @@ Where:
 
 ## 5. Security & Threat Modeling
 
-1. **Path Traversal Mitigation (BR-05):**
+1. **Authentication & Multi-Tenant User Database Tier:**
+   - Dedicated multi-tenant SQLite database (`data/sessions/amra_users.db`) running with `PRAGMA journal_mode=WAL;` and `PRAGMA foreign_keys=ON;`.
+   - Structured relational schema: `users`, `sessions`, and `messages` tables with indexed lookups on `email`, `user_id`, `session_id`, and `provider`.
+   - **NIST-Compliant PBKDF2 Hashing:** Uses `hashlib.pbkdf2_hmac("sha256", password, salt, 100_000)` with 16-byte cryptographic salts and `secrets.compare_digest` constant-time verification.
+   - **PyJWT Token Architecture:** Access tokens signed via HS256 with 7-day expiration, carrying `sub` (user_id), `email`, and `role`.
+   - **Multi-Provider OAuth 2.0:** Live authorization code exchange for **Google (Gmail)**, **GitHub**, and **Microsoft (Outlook)**, alongside a zero-friction developer sandbox fallback for instant 1-click local testing.
+   - **Multi-Tenant History Isolation:** Strictly prevents Insecure Direct Object References (IDOR). All conversation threads and messages are scoped to the authenticated `user_id`.
+   - Backward-compatible access: accepts Developer API key (`settings.API_AUTH_KEY`) for automated benchmarks and developer CLI tooling.
+2. **Path Traversal Mitigation (BR-05):**
    - File paths are normalized and resolved with `Path.resolve()`.
    - The resolved path is checked against permissible directories (`DATA_RAW_DIR` and `DATA_PROCESSED_DIR`).
    - Strict regex matching (`^[a-zA-Z0-9_\-]+\.(csv|parquet)$`) is enforced on `/api/data/download/{filename}`, blocking directory separators, parent traversal (`..`), URL encoding (`%2e%2e%2f`), and disallowed file extensions (`.py`, `.env`, `.sh`, `.exe`).
    - Any attempt to escape via `../../` throws a `ValueError` or HTTP 400/404.
-2. **Command Injection Mitigation:**
-   - Raw shell executions (`shell=True`) are banned.
-   - All external tool calls use dedicated Python APIs or parameter-split executions.
-3. **Execution Watchdog & Killswitch:**
+3. **Command Injection & DoS Upload Mitigation:**
+   - Raw shell executions (`shell=True`) are banned. All external tool calls use dedicated Python APIs.
+   - Large file uploads stream in 1 MB chunks with active running byte counters; uploads exceeding 250 MB are immediately truncated and deleted without RAM exhaustion.
+   - Upload collisions are mitigated by appending short cryptographic hex tokens to duplicate file stems.
+4. **CSV & Spreadsheet Formula Injection Protection:**
+   - Exported CSVs undergo cell sanitization prepending `'` (single apostrophe) to strings starting with formula characters (`=`, `+`, `-`, `@`, `\t`, `\r`) to thwart Dynamic Data Exchange (DDE) exploits.
+5. **Execution Watchdog & Killswitch:**
    - Subprocess and data cleaning executions are wrapped in `asyncio.wait_for(..., timeout=60.0)`.
    - Malformed data or hanging scripts are automatically killed at 60 seconds, preventing thread pool exhaustion and emitting an `ErrorEvent`.
-4. **HITL Cryptographic Authorization:**
-   - Tokens are 32-character hex UUIDs (`hitl_tok_...`).
-   - Tokens expire after single use or after a 10-minute timeout.
-   - Unauthorized requests to `/api/chat/approve` are rejected with HTTP 403.
+6. **HITL Cryptographic Authorization & Rejection:**
+   - Tokens are 32-character hex UUIDs (`hitl_tok_...`) bound to the requesting `session_id` with a strict 10-minute TTL.
+   - Expired or session-mismatched tokens are rejected.
+   - Explicit user rejection (`action="reject"`) purges the token and terminates cleanly without disk writes.
+7. **Secrets & Communications Hardening:**
+   - Gemini API keys are transmitted via the official `x-goog-api-key` header rather than plaintext URL query parameters.
+   - ArXiv fallback queries use encrypted `https://export.arxiv.org/api/query`.
+   - Frontend components enforce protocol validation (`http://` or `https://`) on all external links, preventing `javascript:` injection.
 
 ---
 
@@ -192,22 +222,34 @@ AMRA enforces **6 Global Benchmark Rules (BR-01 through BR-06)** verified by 4 a
 
 ### Running the Complete Benchmark Suite:
 ```powershell
-# 1. Multi-Source Literature (arXiv + OpenAlex) & Datasets (Kaggle + HF)
+# 1. Cloudflare Edge Caching & Multi-Tier Load Burst Suite
+python tests/test_cloudflare_caching.py
+
+# 2. Multi-Tenant User Database, PBKDF2 & OAuth Suite
+python tests/test_auth_database.py
+
+# 3. Multi-Source Literature (arXiv + OpenAlex) & Datasets (Kaggle + HF)
 python tests/test_multi_source.py
 
-# 2. Phase 1: MCP Server, Cleaning Engine, Caching & Security Suite
+# 4. Phase 1: MCP Server, Cleaning Engine, Caching & Security Suite
 python tests/test_phase1_production.py
 
-# 3. Phase 2: FastAPI Middleware, SSE Streaming & HITL Router Suite
+# 5. Phase 2: FastAPI Middleware, SSE Streaming & HITL Router Suite
 python tests/test_phase2_backend.py
 
-# 4. Phase 4: DevSecOps, Path Fuzzing, Offline Mode & Watchdog Suite
+# 6. Phase 4: DevSecOps, Path Fuzzing, Offline Mode & Watchdog Suite
 python tests/test_phase4_security_devops.py
 ```
 
 ---
 
 ## 7. CI/CD & Deployment Strategy
+
+### Cloudflare Pages Edge Deployment:
+- **Build Output Directory:** `.next`
+- **Build Command:** `npm run pages:build` (or `npx @cloudflare/next-on-pages`)
+- **Headers & Routing:** `public/_headers` (immutable edge caching, security headers) and `public/_routes.json`
+- **Wrangler Configuration:** `wrangler.toml` with `nodejs_compat` compatibility flags.
 
 ### Docker Compose Multi-Container Stack:
 ```yaml

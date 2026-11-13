@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Database, Download, Star, HardDrive, ExternalLink, Heart, Tag } from "lucide-react";
+import { Database, Download, Star, HardDrive, ExternalLink, Heart, Tag, Zap } from "lucide-react";
 
 interface DatasetProps {
   dataset: {
@@ -16,12 +16,19 @@ interface DatasetProps {
     is_mock_demo?: boolean;
     tags?: string[];
   };
+  onClean?: (datasetId: string) => void;
 }
 
-export const DatasetCard: React.FC<DatasetProps> = ({ dataset }) => {
+export const DatasetCard: React.FC<DatasetProps> = ({ dataset, onClean }) => {
   const usabilityPct = Math.round((dataset.usability_score || 0.8) * 100);
   const sourceName = (dataset.source || "Kaggle").toUpperCase();
   const isHF = sourceName.includes("HUGGING");
+
+  const isSafeUrl = (url?: string): boolean => {
+    if (!url) return false;
+    const trimmed = url.trim().toLowerCase();
+    return trimmed.startsWith("http://") || trimmed.startsWith("https://");
+  };
 
   return (
     <div className="bg-[#00FF00] text-black border-4 border-black p-4 my-2 shadow-[6px_6px_0_#000000]">
@@ -47,7 +54,7 @@ export const DatasetCard: React.FC<DatasetProps> = ({ dataset }) => {
           )}
         </div>
 
-        {dataset.url && (
+        {dataset.url && isSafeUrl(dataset.url) && (
           <a
             href={dataset.url}
             target="_blank"
@@ -103,7 +110,7 @@ export const DatasetCard: React.FC<DatasetProps> = ({ dataset }) => {
 
         <div className="bg-white p-2.5 border-2 border-black shadow-[3px_3px_0_#000000]">
           <div className="text-[10px] font-mono font-black uppercase text-black flex items-center gap-1">
-            <Download className="w-3 h-3 text-black" aria-hidden="true" />
+            <Download className="w-3.5 h-3.5 text-black" aria-hidden="true" />
             <span>DOWNLOADS</span>
           </div>
           <div className="text-black font-black text-base mt-0.5">
@@ -111,6 +118,21 @@ export const DatasetCard: React.FC<DatasetProps> = ({ dataset }) => {
           </div>
         </div>
       </div>
+
+      {/* 1-Click Clean & Benchmark Action */}
+      {onClean && (
+        <div className="mt-3 pt-2.5 border-t-2 border-black">
+          <button
+            type="button"
+            onClick={() => onClean(dataset.dataset_id)}
+            aria-label={`Clean and benchmark dataset ${dataset.dataset_id}`}
+            className="w-full bg-black text-white hover:bg-white hover:text-black border-2 border-black py-2 px-3 font-mono font-black text-xs uppercase flex items-center justify-center gap-1.5 shadow-[3px_3px_0_#000000] hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 transition-none cursor-pointer"
+          >
+            <Zap className="w-3.5 h-3.5 text-yellow-300 fill-yellow-300" aria-hidden="true" />
+            <span>CLEAN &amp; BENCHMARK</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 };

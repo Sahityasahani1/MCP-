@@ -71,3 +71,4 @@ class ApprovalRequest(BaseModel):
     approval_token: str
     session_id: str
     action: Literal["approve", "reject"] = "approve"
+    custom_recipe: Optional[Dict[str, Any]] = None

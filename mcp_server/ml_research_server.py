@@ -8,7 +8,7 @@ import sys
 import os
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Optional, Dict, Any, List
 
 # Ensure mcp_server is in sys.path
 CURRENT_DIR = Path(__file__).resolve().parent
@@ -148,6 +148,8 @@ def trigger_data_pipeline(
     drop_duplicates: bool = True,
     normalize_headers: bool = True,
     cap_outliers: bool = True,
+    test_size: float = 0.2,
+    target_column: Optional[str] = None,
 ) -> str:
     """Downloads, cleans, profiles, and exports a tabular dataset to CSV and Apache Parquet.
 
@@ -155,18 +157,29 @@ def trigger_data_pipeline(
     stratified zero-leakage train/test partitioning, and automated LightGBM baseline modeling.
 
     Args:
-        dataset_id: Kaggle dataset identifier (e.g., 'mlg-ulb/creditcardfraud').
+        dataset_id: Kaggle dataset identifier (e.g., 'mlg-ulb/creditcardfraud') or local file.
         handle_missing: Strategy for resolving null values ('median_impute', 'mean_impute', 'mode_impute', 'drop').
         drop_duplicates: Whether to detect and remove identical rows.
         normalize_headers: Whether to standardize column names to snake_case.
         cap_outliers: Whether to winsorize extreme numeric outliers.
+        test_size: Ratio for train/test partition (e.g. 0.2 for 80/20).
+        target_column: Optional override of target prediction feature for LightGBM.
 
     Returns:
         JSON string with paths to cleaned CSV and Parquet, health scores, baseline model metrics, and head preview.
     """
     try:
-        download_info = _download_kaggle(dataset_id=dataset_id, target_dir="./data/raw")
-        dataset_folder = download_info["local_path"]
+        # Check if local dataset
+        if dataset_id.startswith("local/"):
+            raw_path = Path("./data/raw") / (dataset_id.replace("local/", "") + ".csv")
+            if raw_path.exists():
+                dataset_folder = raw_path.parent
+            else:
+                download_info = _download_kaggle(dataset_id=dataset_id, target_dir="./data/raw")
+                dataset_folder = download_info["local_path"]
+        else:
+            download_info = _download_kaggle(dataset_id=dataset_id, target_dir="./data/raw")
+            dataset_folder = download_info["local_path"]
 
         pipeline_result = run_pipeline_for_dataset(
             dataset_folder=dataset_folder,
@@ -175,6 +188,8 @@ def trigger_data_pipeline(
             drop_duplicates=drop_duplicates,
             normalize_headers=normalize_headers,
             cap_outliers=cap_outliers,
+            test_size=test_size,
+            target_col_override=target_column,
         )
         pipeline_result["source_dataset_id"] = dataset_id
         return json.dumps(pipeline_result, indent=2)

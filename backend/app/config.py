@@ -24,6 +24,29 @@ class Settings(BaseSettings):
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     DATA_RAW_DIR: Path = BASE_DIR / "data" / "raw"
     DATA_PROCESSED_DIR: Path = BASE_DIR / "processed_data"
+
+    # Security & Authentication
+    API_AUTH_KEY: str = os.getenv("API_AUTH_KEY", "amra-secret-key-2026")
+    AUTH_ENABLED: bool = os.getenv("AUTH_ENABLED", "true").lower() in ("true", "1", "yes")
+    JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "amra-jwt-production-secret-key-2026-v2")
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRATION_DAYS: int = 7
+
+    # OAuth 2.0 Identity Providers
+    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:3000")
+    GOOGLE_CLIENT_ID: str = os.getenv("GOOGLE_CLIENT_ID", "")
+    GOOGLE_CLIENT_SECRET: str = os.getenv("GOOGLE_CLIENT_SECRET", "")
+    GITHUB_CLIENT_ID: str = os.getenv("GITHUB_CLIENT_ID", "")
+    GITHUB_CLIENT_SECRET: str = os.getenv("GITHUB_CLIENT_SECRET", "")
+    MICROSOFT_CLIENT_ID: str = os.getenv("MICROSOFT_CLIENT_ID", "")
+    MICROSOFT_CLIENT_SECRET: str = os.getenv("MICROSOFT_CLIENT_SECRET", "")
+
+    ALLOWED_ORIGINS: list = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ]
     
     class Config:
         env_file = ".env"

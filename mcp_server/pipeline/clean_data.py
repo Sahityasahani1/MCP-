@@ -34,6 +34,17 @@ except Exception:
     HAS_SKLEARN = False
 
 
+def _sanitize_spreadsheet_formulas(df: pd.DataFrame) -> pd.DataFrame:
+    """Escapes potential spreadsheet formula injection symbols (=, +, -, @, tab, cr) in string cells."""
+    df_clean = df.copy()
+    trigger_prefixes = ("=", "+", "-", "@", "\t", "\r")
+    for col in df_clean.select_dtypes(include=["object"]).columns:
+        df_clean[col] = df_clean[col].apply(
+            lambda val: f"'{val}" if isinstance(val, str) and val.startswith(trigger_prefixes) else val
+        )
+    return df_clean
+
+
 def _to_snake_case(col_name: str) -> str:
     """Standardizes dirty column names to clean snake_case."""
     s = col_name.strip()
@@ -249,6 +260,8 @@ def clean_tabular_dataset(
     normalize_headers: bool = True,
     cap_outliers: bool = True,
     dataset_name: Optional[str] = None,
+    test_size: float = 0.2,
+    target_col_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Cleans a tabular dataset and returns v3.0 production health metrics and dual exports."""
     input_file = Path(input_path).resolve()
@@ -402,21 +415,25 @@ def clean_tabular_dataset(
 
     # 9. Target Identification & Split-First Partitions
     prefix = dataset_name or input_file.stem
-    target_col = _detect_target_column(df)
+    target_col = target_col_override if (target_col_override and target_col_override in df.columns) else _detect_target_column(df)
     baseline_results: Optional[Dict[str, Any]] = None
     train_parquet_path = None
     test_parquet_path = None
 
+    effective_test_size = max(0.05, min(0.5, test_size))
+    train_pct = int(round((1.0 - effective_test_size) * 100))
+    test_pct = int(round(effective_test_size * 100))
+
     if target_col and final_rows >= 20 and HAS_SKLEARN:
         try:
             stratify = df[target_col] if df[target_col].nunique() <= 10 else None
-            train_df, test_df = train_test_split(df, test_size=0.2, random_state=42, stratify=stratify)
+            train_df, test_df = train_test_split(df, test_size=effective_test_size, random_state=42, stratify=stratify)
 
             train_parquet_path = output_folder / f"{prefix}_train.parquet"
             test_parquet_path = output_folder / f"{prefix}_test.parquet"
             train_df.to_parquet(train_parquet_path, engine="pyarrow", index=False)
             test_df.to_parquet(test_parquet_path, engine="pyarrow", index=False)
-            actions_taken.append(f"Generated stratified 80/20 train/test partitions for target '{target_col}' (Zero Leakage).")
+            actions_taken.append(f"Generated stratified {train_pct}/{test_pct} train/test partitions for target '{target_col}' (Zero Leakage).")
 
             # Train baseline model
             baseline_results = _train_baseline_model(train_df, test_df, target_col)
@@ -426,10 +443,11 @@ def clean_tabular_dataset(
         except Exception:
             pass
 
-    # 10. Dual Export: Clean CSV and Apache Parquet
+    # 10. Dual Export: Clean CSV and Apache Parquet (with CSV formula injection escaping)
     csv_filename = f"{prefix}_cleaned.csv"
     csv_path = output_folder / csv_filename
-    df.to_csv(csv_path, index=False)
+    df_csv_safe = _sanitize_spreadsheet_formulas(df)
+    df_csv_safe.to_csv(csv_path, index=False)
 
     parquet_filename = f"{prefix}_cleaned.parquet"
     parquet_path = output_folder / parquet_filename
@@ -469,6 +487,8 @@ def run_pipeline_for_dataset(
     drop_duplicates: bool = True,
     normalize_headers: bool = True,
     cap_outliers: bool = True,
+    test_size: float = 0.2,
+    target_col_override: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Locates the primary CSV in dataset directory with smart selection and runs pipeline."""
     folder = Path(dataset_folder).resolve()
@@ -499,6 +519,8 @@ def run_pipeline_for_dataset(
         normalize_headers=normalize_headers,
         cap_outliers=cap_outliers,
         dataset_name=dataset_name,
+        test_size=test_size,
+        target_col_override=target_col_override,
     )
 
 

@@ -55,11 +55,15 @@ class GeminiAdapter(BaseLLMAdapter):
         }
 
         last_error = None
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": self.api_key,
+        }
         async with httpx.AsyncClient(timeout=30.0) as client:
             for model in models_to_try:
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
                 try:
-                    resp = await client.post(url, json=payload)
+                    resp = await client.post(url, json=payload, headers=headers)
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])

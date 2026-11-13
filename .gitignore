@@ -11,9 +11,21 @@ ENV/
 
 # Environment & Credentials
 .env
+.env*.local
 kaggle.json
 *.pem
 *.key
+
+# Database WAL & Shared Memory Locks
+*.db-shm
+*.db-wal
+*.sqlite-shm
+*.sqlite-wal
+data/cache/*.db-shm
+data/cache/*.db-wal
+data/sessions/*.db-shm
+data/sessions/*.db-wal
+data/sessions/amra_users.db
 
 # Data storage (Raw & Processed)
 data/raw/*

@@ -1,0 +1,36 @@
+# Cloudflare Pages Edge Caching & Security Headers Rules
+
+# 1. Global defaults for HTML documents & pages
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Cache-Control: public, max-age=0, must-revalidate
+  CDN-Cache-Control: public, max-age=300, stale-while-revalidate=600
+  Cloudflare-CDN-Cache-Control: public, max-age=300, stale-while-revalidate=600
+
+# 2. Immutable static Next.js build assets (1-Year Edge CDN Cache)
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+  CDN-Cache-Control: public, max-age=31536000
+  Cloudflare-CDN-Cache-Control: public, max-age=31536000
+
+# 3. Static Media, Fonts, Favicons & Icons
+/*.ico
+  Cache-Control: public, max-age=604800, stale-while-revalidate=2592000
+/*.png
+  Cache-Control: public, max-age=604800, stale-while-revalidate=2592000
+/*.svg
+  Cache-Control: public, max-age=604800, stale-while-revalidate=2592000
+
+# 4. Public API Telemetry & Health Probe Edge Caching
+/api/health
+  Cache-Control: public, max-age=5, stale-while-revalidate=15
+  CDN-Cache-Control: public, max-age=5
+  Cloudflare-CDN-Cache-Control: public, max-age=5
+
+/api/cache/*
+  Cache-Control: public, max-age=10, stale-while-revalidate=30
+  CDN-Cache-Control: public, max-age=10
+  Cloudflare-CDN-Cache-Control: public, max-age=10

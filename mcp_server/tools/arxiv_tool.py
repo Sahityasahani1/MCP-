@@ -59,7 +59,7 @@ def _search_via_arxiv_package(query: str, max_results: int, sort_by: str) -> Lis
 
 def _search_via_http_fallback(query: str, max_results: int, sort_by: str) -> List[Dict[str, Any]]:
     """Direct HTTP fallback to arXiv atom feed API."""
-    base_url = "http://export.arxiv.org/api/query"
+    base_url = "https://export.arxiv.org/api/query"
     params = {
         "search_query": f"all:{query}",
         "start": 0,

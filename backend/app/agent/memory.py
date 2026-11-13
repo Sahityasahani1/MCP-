@@ -1,51 +1,15 @@
-"""Persistent SQLite Conversation Memory for Multi-Turn Agent Sessions."""
+"""Persistent Multi-Tenant Conversation Memory for Multi-Turn Agent Sessions."""
 
-import sqlite3
-import json
-import time
-import threading
 from pathlib import Path
 from typing import List, Dict, Any, Optional
+from ..db.database import amra_db
 
 
 class ConversationMemory:
-    """Thread-safe SQLite conversation store."""
+    """Thread-safe SQLite conversation store with multi-tenant user isolation."""
 
-    def __init__(self, db_path: Optional[str | Path] = None):
-        if db_path is None:
-            storage_dir = Path(__file__).resolve().parent.parent.parent.parent / "data" / "sessions"
-            storage_dir.mkdir(parents=True, exist_ok=True)
-            self.db_path = storage_dir / "chat_history.db"
-        else:
-            self.db_path = Path(db_path)
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-
-        self._local = threading.local()
-        self._init_db()
-
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = getattr(self._local, "conn", None)
-        if conn is None:
-            conn = sqlite3.connect(str(self.db_path), timeout=10.0, check_same_thread=False)
-            conn.execute("PRAGMA journal_mode=WAL;")
-            conn.execute("PRAGMA synchronous=NORMAL;")
-            self._local.conn = conn
-        return conn
-
-    def _init_db(self) -> None:
-        conn = self._get_connection()
-        with conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS messages (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    session_id TEXT NOT NULL,
-                    role TEXT NOT NULL,
-                    content TEXT NOT NULL,
-                    metadata_json TEXT,
-                    created_at REAL NOT NULL
-                );
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_session ON messages(session_id, created_at);")
+    def __init__(self):
+        self.db = amra_db
 
     def add_message(
         self,
@@ -53,46 +17,41 @@ class ConversationMemory:
         role: str,
         content: str,
         metadata: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
     ) -> None:
-        """Stores a message in conversation history."""
-        conn = self._get_connection()
-        now = time.time()
-        meta_str = json.dumps(metadata) if metadata else None
-        with conn:
-            conn.execute(
-                "INSERT INTO messages (session_id, role, content, metadata_json, created_at) VALUES (?, ?, ?, ?, ?)",
-                (session_id, role, content, meta_str, now),
-            )
-
-    def get_history(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
-        """Retrieves chronological message history for a session."""
-        conn = self._get_connection()
-        cursor = conn.execute(
-            """
-            SELECT role, content, metadata_json, created_at 
-            FROM messages 
-            WHERE session_id = ? 
-            ORDER BY id ASC 
-            LIMIT ?
-            """,
-            (session_id, limit),
+        """Stores a message in conversation history bound to a user."""
+        uid = user_id or "usr_default_dev"
+        self.db.add_message(
+            session_id=session_id,
+            user_id=uid,
+            role=role,
+            content=content,
+            metadata=metadata,
         )
-        history = []
-        for role, content, meta_str, created_at in cursor.fetchall():
-            meta = json.loads(meta_str) if meta_str else {}
-            history.append({
-                "role": role,
-                "content": content,
-                "metadata": meta,
-                "created_at": created_at,
-            })
-        return history
 
-    def clear_session(self, session_id: str) -> None:
+    def get_history(
+        self,
+        session_id: str,
+        user_id: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Retrieves chronological message history for a session."""
+        return self.db.get_session_messages(
+            session_id=session_id,
+            user_id=user_id,
+            limit=limit,
+        )
+
+    def clear_session(self, session_id: str, user_id: Optional[str] = None) -> None:
         """Deletes all messages for a session."""
-        conn = self._get_connection()
-        with conn:
-            conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        uid = user_id or "usr_default_dev"
+        self.db.delete_user_session(session_id=session_id, user_id=uid)
+
+    def list_sessions(self, user_id: Optional[str] = None, limit: int = 30) -> List[Dict[str, Any]]:
+        """Lists active sessions for a specific user, or default sessions if no user specified."""
+        if user_id:
+            return self.db.list_user_sessions(user_id=user_id, limit=limit)
+        return self.db.list_user_sessions(user_id="usr_default_dev", limit=limit)
 
 
 # Global singleton instance

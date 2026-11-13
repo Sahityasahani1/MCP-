@@ -82,16 +82,22 @@ stateDiagram-v2
 Antigravity must never conclude a code modification turn without validating against the project benchmark test suite:
 
 ```powershell
-# Run Multi-Source Discovery Benchmark (OpenAlex + Hugging Face)
+# 1. Run Cloudflare Edge Caching & Load Burst Benchmark
+python tests/test_cloudflare_caching.py
+
+# 2. Run Multi-Tenant Database & User Authentication Benchmark
+python tests/test_auth_database.py
+
+# 3. Run Multi-Source Discovery Benchmark (OpenAlex + Hugging Face)
 python tests/test_multi_source.py
 
-# Run MCP Execution & Security Benchmark
+# 4. Run MCP Execution & Security Benchmark
 python tests/test_phase1_production.py
 
-# Run FastAPI Middleware & SSE Router Benchmark
+# 5. Run FastAPI Middleware & SSE Router Benchmark
 python tests/test_phase2_backend.py
 
-# Run DevSecOps, Path Traversal & HITL Security Benchmark
+# 6. Run DevSecOps, Path Traversal & HITL Security Benchmark
 python tests/test_phase4_security_devops.py
 ```
 

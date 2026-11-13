@@ -25,11 +25,13 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from app.main import app
+from app.config import settings
 from app.agent.factory import get_model_adapter, MockLLMAdapter
 from app.agent.orchestrator import AgentOrchestrator, PENDING_APPROVALS
 from app.agent.memory import session_memory
 
 client = TestClient(app)
+AUTH_HEADERS = {"Authorization": f"Bearer {settings.API_AUTH_KEY}"}
 
 
 def test_br01_health_check_contract():
@@ -152,15 +154,20 @@ def test_br04_hitl_approval_gate():
 
 
 def test_br05_data_api_and_path_traversal():
-    print("\n[BENCHMARK BR-05] Testing Data Artifact Listing & Path Traversal Guard...")
-    # 1. List processed files
-    list_resp = client.get("/api/data/processed")
+    print("\n[BENCHMARK BR-05] Testing Data Artifact Listing, Auth & Path Traversal Guard...")
+    # 1. Unauthenticated request must return 401
+    unauth_resp = client.get("/api/data/processed")
+    assert unauth_resp.status_code == 401, f"Unauthenticated request should return 401, got {unauth_resp.status_code}"
+    print(" -> Unauthenticated request correctly rejected with HTTP 401.")
+
+    # 2. Authenticated request returns 200
+    list_resp = client.get("/api/data/processed", headers=AUTH_HEADERS)
     assert list_resp.status_code == 200
     files = list_resp.json().get("files", [])
-    print(f" -> Discovered {len(files)} cleaned dataset file(s) available for download.")
+    print(f" -> Discovered {len(files)} cleaned dataset file(s) available for download with auth.")
 
-    # 2. Path traversal attack attempt
-    attack_resp = client.get("/api/data/download/../../etc/passwd")
+    # 3. Path traversal attack attempt with auth must be blocked
+    attack_resp = client.get("/api/data/download/../../etc/passwd", headers=AUTH_HEADERS)
     assert attack_resp.status_code in [400, 404], "Path traversal attack must be blocked!"
     print(" -> Path traversal attack safely blocked with HTTP 400/404.")
     print(" [PASSED BR-05]")
